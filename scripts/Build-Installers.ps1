@@ -25,7 +25,10 @@ $currentSources = Get-SourceHashes
 foreach ($property in $state.sources.PSObject.Properties) {
     if (!$currentSources.Contains($property.Name) -or $currentSources[$property.Name] -ne $property.Value) { throw "Source changed since Release build: $($property.Name). Run Build-Release.ps1 again." }
 }
-if ($currentSources.Count -ne @($state.sources.PSObject.Properties).Count) { throw 'Source files changed. Run Build-Release.ps1 again.' }
+if ($currentSources.Count -ne @($state.sources.PSObject.Properties).Count) {
+    $added = @($currentSources.Keys | Where-Object { $_ -notin $state.sources.PSObject.Properties.Name })
+    throw "Source files added since Release build: $($added -join ', '). Run Build-Release.ps1 again."
+}
 $runtime = [string]$state.runtime
 $runtimeHashes = Get-Content -LiteralPath "$runtime/SHA256SUMS.json" -Raw | ConvertFrom-Json
 if (@(Get-ChildItem -LiteralPath $runtime -File -Recurse | Where-Object Name -ne 'SHA256SUMS.json').Count -ne @($runtimeHashes.PSObject.Properties).Count) { throw 'Unexpected files in the release runtime. Run Build-Release.ps1 again.' }

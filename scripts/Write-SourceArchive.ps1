@@ -1,6 +1,6 @@
 param([Parameter(Mandatory)][string]$Destination)
 . "$PSScriptRoot/Release.Common.ps1"
-Add-Type -AssemblyName System.IO.Compression.FileSystem
+Add-Type -AssemblyName System.IO.Compression,System.IO.Compression.FileSystem
 # Explicit public source roots, including uncommitted build inputs. Never archive
 # the working directory wholesale: it contains signing keys and local config.
 $files=@(Get-SourceHashes).Keys

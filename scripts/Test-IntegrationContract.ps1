@@ -45,7 +45,7 @@ try {
     Push-Location $IntegrationRoot
     try {
         "Integration contract source: $IntegrationRoot; manifest SHA256: $((Get-FileHash "$bundled/source.json" -Algorithm SHA256).Hash); WHAT version: $ExpectedVersion" | Set-Content "$OutputDirectory/revisions.txt"
-        Invoke-Checked $python @('-m','pytest','-q','-p','no:cacheprovider','tests/test_live_app.py','--basetemp',"$OutputDirectory/temp",'--junitxml',"$OutputDirectory/results.xml")
+        Invoke-Checked $python @('-B','-m','pytest','-q','-p','no:cacheprovider','tests/test_live_app.py','--basetemp',"$OutputDirectory/temp",'--junitxml',"$OutputDirectory/results.xml")
     } finally { Pop-Location }
 } finally {
     $env:WHAT_TEST_EXE = $previousExe; $env:WHAT_TEST_PROFILE = $previousProfile; $env:WHAT_EXPECTED_VERSION = $previousVersion

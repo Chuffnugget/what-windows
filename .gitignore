@@ -9,3 +9,6 @@ release.local.json
 *.pfx
 *.key
 *.pem
+__pycache__/
+*.pyc
+*.pyo

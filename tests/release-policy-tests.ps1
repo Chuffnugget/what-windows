@@ -77,6 +77,54 @@ try {
 }
 Write-Output 'PASS: project-relative configuration, absolute overrides and default tool detection.'
 
+# A clean CI checkout imports the bundled integration during runtime tests.
+# Those imports must not change the release fingerprint or enter Source.zip.
+$sourceFixture = Join-Path $OutputDirectory 'source-fixture'
+foreach ($name in @('src','qml','assets','tests','tools','scripts','packaging','licenses','docs','.github')) {
+    New-Item -ItemType Directory -Path "$sourceFixture/$name" -Force | Out-Null
+}
+Set-Content "$sourceFixture/CMakeLists.txt" 'project(WHAT VERSION 0.1.0)'
+Set-Content "$sourceFixture/src/app.cpp" 'int main() { return 0; }'
+Set-Content "$sourceFixture/tests/contract.py" 'VALUE = 1'
+Copy-Item -LiteralPath "$root/scripts/Release.Common.ps1","$root/scripts/Write-SourceArchive.ps1" -Destination "$sourceFixture/scripts"
+try {
+    $script:ProjectRoot = $sourceFixture
+    $before = Get-SourceHashes
+    New-Item -ItemType Directory -Path "$sourceFixture/tests/__pycache__" | Out-Null
+    foreach ($name in @('tests/__pycache__/contract.cpython-312.pyc', 'tests/__pycache__/cache-metadata',
+        'tests/contract.pyc', 'tests/contract.pyo')) {
+        Set-Content -LiteralPath "$sourceFixture/$name" 'generated Python cache'
+    }
+    $after = Get-SourceHashes
+    if ($after.Count -ne $before.Count) { throw 'Python caches changed the source file set.' }
+    foreach ($name in $before.Keys) {
+        if ($after[$name] -ne $before[$name]) { throw "Python caches changed the source hash: $name" }
+    }
+
+    $archivePath = Join-Path $sourceFixture 'Source.zip'
+    & "$sourceFixture/scripts/Write-SourceArchive.ps1" -Destination $archivePath
+    $archive = [IO.Compression.ZipFile]::OpenRead($archivePath)
+    try {
+        $names = @($archive.Entries | ForEach-Object FullName)
+        if ($names -notcontains 'tests/contract.py' -or $names -notcontains 'src/app.cpp') {
+            throw 'Source archive omitted actual source files.'
+        }
+        if ($names | Where-Object { $_ -match '__pycache__|\.(pyc|pyo)$' }) {
+            throw 'Source archive contains Python caches.'
+        }
+    } finally { $archive.Dispose() }
+
+    Add-Content "$sourceFixture/src/app.cpp" '// changed'
+    if ((Get-SourceHashes)['src/app.cpp'] -eq $before['src/app.cpp']) {
+        throw 'An edited source file was ignored.'
+    }
+    Set-Content "$sourceFixture/src/added.cpp" '// new source'
+    if (!(Get-SourceHashes).Contains('src/added.cpp')) { throw 'An added source file was ignored.' }
+    Remove-Item -LiteralPath "$sourceFixture/tests/contract.py"
+    if ((Get-SourceHashes).Contains('tests/contract.py')) { throw 'A deleted source file remains in the fingerprint.' }
+} finally { $script:ProjectRoot = $originalProjectRoot }
+Write-Output 'PASS: Python caches excluded from release hashes and source archive; real source changes retained.'
+
 function Invoke-Checked { throw 'A missing identity must fail before invoking a signing tool.' }
 foreach($config in @(@{},@{Publisher='CN=Fixture';SigningPfx="$OutputDirectory/missing.pfx";SigningCertificate="$OutputDirectory/missing.cer"})){
     $rejected=$false

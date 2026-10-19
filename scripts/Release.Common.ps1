@@ -185,7 +185,13 @@ function Get-SourceHashes {
     $result = [ordered]@{}
     $files = @(Get-Item (Join-Path $script:ProjectRoot 'CMakeLists.txt'))
     foreach ($dir in @('src','qml','assets','tests','tools','scripts','packaging','licenses','docs')) { $files += @(Get-ChildItem -LiteralPath (Join-Path $script:ProjectRoot $dir) -File -Recurse) }
-    foreach ($file in ($files | Sort-Object FullName)) { $relative=$file.FullName.Substring($script:ProjectRoot.Length+1).Replace('\','/'); $result[$relative]=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash }
+    foreach ($file in ($files | Sort-Object FullName)) {
+        $relative = $file.FullName.Substring($script:ProjectRoot.Length + 1).Replace('\','/')
+        # Python imports may populate these after compilation. They are neither
+        # build inputs nor corresponding source for the release archive.
+        if ($relative -match '(^|/)__pycache__/|\.(pyc|pyo)$') { continue }
+        $result[$relative] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+    }
     return $result
 }
 function Write-FileHashes([string]$Directory) {

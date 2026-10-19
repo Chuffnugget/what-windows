@@ -259,6 +259,10 @@ Repository settings are separate from Git. When moving to a new repository,
 create an empty `ci` environment and a `release` environment restricted to tags
 matching `v*`. Set these values in `release`, using the existing signing identity:
 
+Find these under **Settings > Environments > release**. Add the three secrets
+under **Environment secrets**, and the publisher under **Environment variables**.
+The `ci` environment needs no signing secrets.
+
 | Type | Name | Value |
 | --- | --- | --- |
 | Secret | `SIGNING_PFX_BASE64` | Base64 of the existing password-protected PFX |
@@ -286,6 +290,11 @@ also prepare portable and source archives, retained for five days. Diagnostic
 logs are retained for seven days. These artifact uploads are optional, so a quota failure
 does not fail an otherwise successful build. Build and test failures still stop
 publication. The local build scripts never publish.
+
+The installer checks that the source files still match the tested build. Python
+bytecode caches are excluded from this check and from the source archive, and
+the integration contract tests run with bytecode writing disabled. New or edited
+source files still require a rebuild; the packaging error identifies their paths.
 
 ## Integration contract
 
