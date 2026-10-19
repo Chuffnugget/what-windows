@@ -34,6 +34,7 @@
 #include "modules/custom/CustomSources.h"
 #include <QQmlApplicationEngine>
 #include <QQmlExpression>
+#include <QQmlContext>
 #include <QQmlProperty>
 #include <QQuickStyle>
 #include <QQuickWindow>
@@ -75,6 +76,17 @@ public slots:
 
     void open(const QUrl &url) {
         urls.append(url);
+    }
+};
+
+// Stop incubation at a known binding, before componentComplete creates delegates.
+class IncubationCheckpoint : public QObject {
+    Q_OBJECT
+public:
+    std::atomic<bool> keepGoing{true};
+    Q_INVOKABLE bool reached() {
+        keepGoing.store(false);
+        return true;
     }
 };
 
@@ -3788,6 +3800,11 @@ private slots:
         heartbeat->setProperty("timestamp", double(QDateTime::currentMSecsSinceEpoch()));
         QTRY_COMPARE(window->property("beatCount").toInt(), 1);
         QTest::qWait(1000); // The first peak is visible, but its recovery tail is still being drawn.
+        // Freeze the reveal before comparing geometry. A slow runner can draw
+        // the second peak during grabWindow(), which is a different part of the trace.
+        auto *pulse = heartbeat->findChild<QObject *>("haHeartbeatPulse");
+        QVERIFY(pulse);
+        QVERIFY(pulse->setProperty("paused", true));
         const auto before = window->grabWindow();
         const auto ratio = window->devicePixelRatio();
         const int peakBottom = qRound((heartbeat->mapToScene(QPointF(0,
@@ -8354,6 +8371,36 @@ private slots:
         QTest::newRow("desktop-Web-window") << QString("homeAssistantWebDesktop");
     }
 
+    void cachedSensorCheckboxCancellation() {
+        QQmlIncubationController creation;
+        IncubationCheckpoint checkpoint;
+        QQmlEngine engine;
+        engine.setIncubationController(&creation);
+        engine.rootContext()->setContextProperty("checkpoint", &checkpoint);
+        QQmlComponent component(&engine);
+        component.setData(R"QML(
+            import QtQuick
+            import "qrc:/qml/controls"
+            OptionCheckBox {
+                width: 44; height: 26
+                indicatorCentered: true
+                indicatorVisible: false
+                property bool stopHere: checkpoint.reached()
+            }
+        )QML", QUrl());
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        QQmlIncubator pending(QQmlIncubator::Asynchronous);
+        component.create(pending);
+        creation.incubateWhile(&checkpoint.keepGoing);
+        QVERIFY(!checkpoint.keepGoing.load());
+        QVERIFY(pending.isLoading());
+        // Filtering or removing a module may discard a cached row at this point.
+        // Engine destruction must not report unfinished deferred indicators.
+        pending.clear();
+        QCOMPARE(creation.incubatingObjectCount(), 0);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    }
+
     void sharedToolTips() {
         QFETCH(QString, windowName);
         QQmlApplicationEngine engine;
@@ -8416,12 +8463,19 @@ private slots:
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
         QVERIFY(window);
         window->setObjectName(windowName);
+        window->setPosition(0, 0);
         window->show();
         QVERIFY(QTest::qWaitForWindowExposed(window));
         window->raise();
         window->requestActivate();
         QVERIFY(QTest::qWaitForWindowActive(window));
-        QTest::mouseMove(window, QPoint(180, 220));
+        // QTest's QWindow mouse events do not move the OS cursor. Native popup
+        // and child windows also consult that position when delivering hover.
+        const auto movePointer = [&](QPoint point) {
+            QCursor::setPos(window->mapToGlobal(point));
+            QTest::mouseMove(window, point);
+        };
+        movePointer(QPoint(180, 240));
         auto *tip = window->property("sharedTip").value<QObject *>();
         QVERIFY(tip);
         QCOMPARE(tip->objectName(), QString("whatToolTip"));
@@ -8433,7 +8487,8 @@ private slots:
         for (const auto *name : {"first", "second"}) {
             auto *control = window->findChild<QQuickItem *>(name);
             QVERIFY(control);
-            QTest::mouseMove(window, control->mapToScene(QPointF(control->width() / 2, 15)).toPoint());
+            movePointer(control->mapToScene(QPointF(control->width() / 2, 15)).toPoint());
+            QTRY_VERIFY(control->property("hovered").toBool());
             QTRY_VERIFY(tip->property("visible").toBool());
             QTRY_COMPARE(tip->property("parent").value<QQuickItem *>(), control);
             auto *content = tip->property("contentItem").value<QQuickItem *>();
@@ -8452,7 +8507,7 @@ private slots:
                 if (!qEnvironmentVariableIsEmpty("WHAT_REDESIGN_PREVIEW"))
                     window->grabWindow().save(qEnvironmentVariable("WHAT_REDESIGN_PREVIEW") + "/tooltip.png");
             }
-            QTest::mouseMove(window, QPoint(180, 220));
+            movePointer(QPoint(180, 240));
             QTRY_VERIFY(!tip->property("visible").toBool());
         }
 

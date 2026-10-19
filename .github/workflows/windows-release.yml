@@ -99,6 +99,11 @@ jobs:
             Write-Host "$architecture compiler: $($tools.CompilerVersion); Qt: $($tools.Qt)"
           }
       - name: Build and test x64 Release
+        env:
+          # Exercise shaders and native popups on a reproducible Windows device,
+          # even when the hosted runner has no hardware GPU.
+          QSG_RHI_BACKEND: d3d11
+          QSG_RHI_PREFER_SOFTWARE_RENDERER: '1'
         run: |
           Set-Location $env:PROJECT_DIR
           ./scripts/Build-Release.ps1 -Architecture x64

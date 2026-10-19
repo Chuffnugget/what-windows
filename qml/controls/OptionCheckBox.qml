@@ -11,12 +11,16 @@ CheckBox {
     spacing: Theme.spaceM
     leftPadding: 0
     implicitHeight: Theme.controlHeight
+    // Configure the indicator without forcing deferred creation from a cached row.
+    property bool indicatorCentered: false
+    property bool indicatorVisible: true
 
     indicator: Rectangle {
-        x: 0
+        x: c.indicatorCentered ? (c.width - width) / 2 : 0
         y: (c.height - height) / 2
         width: 20
         height: 20
+        visible: c.indicatorVisible
 
         color: Theme.field
         border.color: c.visualFocus ? Theme.accent : Theme.outlineStrong

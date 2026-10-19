@@ -1114,7 +1114,7 @@ ColumnLayout {
                                 ? (row.highFrequency ? 1 : 0)
                                 : (row.shareScope & modelData ? 1 : 0)
                             text: ""
-                            indicator.x: (width - indicator.width) / 2
+                            indicatorCentered: true
                             checkState: selectedCount === 0
                                 ? Qt.Unchecked
                                 : row.header
@@ -1183,8 +1183,8 @@ ColumnLayout {
                         implicitHeight: 26
                         checked: sensorRow.modelData.favourite === true
                         text: ""
-                        indicator.x: (width - indicator.width) / 2
-                        indicator.visible: !sensorRow.modelData.header
+                        indicatorCentered: true
+                        indicatorVisible: !sensorRow.modelData.header
                         enabled: !sensorRow.modelData.header
                         Accessible.name: sensorRow.modelData.name + ": Favourite"
                         ToolTip.text: "Add or remove this reading from favourites. Sharing is unchanged."
