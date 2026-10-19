@@ -16,6 +16,7 @@ inline LPTOP_LEVEL_EXCEPTION_FILTER previous = nullptr;
 inline volatile LONG capturing = 0;
 inline HMODULE dbghelp = nullptr;
 inline decltype(&MiniDumpWriteDump) dump = nullptr;
+inline DWORD dumpLoadError = ERROR_PROC_NOT_FOUND;
 inline decltype(&StackWalk64) walk = nullptr;
 inline decltype(&SymFunctionTableAccess64) functions = nullptr;
 inline decltype(&SymGetModuleBase64) moduleBase = nullptr;
@@ -75,6 +76,60 @@ inline void frame(HANDLE file, DWORD64 address) {
     line(file, text);
 }
 
+inline void dumpFailure(HANDLE report, const char *operation, DWORD error) {
+    char text[256];
+    snprintf(text, sizeof(text), "Memory dump: %s failed (0x%08lX)", operation, error);
+    if (report != INVALID_HANDLE_VALUE) {
+        line(report, text);
+        line(report, "\n");
+    }
+    appendAt(folder, component, "ERROR", text);
+}
+
+inline void writeDump(const wchar_t *path, EXCEPTION_POINTERS *exception, HANDLE report) {
+    if (!dump) {
+        dumpFailure(report, "loading MiniDumpWriteDump", dumpLoadError);
+        return;
+    }
+    HANDLE output = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_NEW,
+                                FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (output == INVALID_HANDLE_VALUE) {
+        dumpFailure(report, "creating dump file", GetLastError());
+        return;
+    }
+    MINIDUMP_EXCEPTION_INFORMATION info{GetCurrentThreadId(), exception, FALSE};
+    bool saved = false;
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        saved = dump(GetCurrentProcess(), GetCurrentProcessId(), output, MiniDumpNormal,
+                     &info, nullptr, nullptr);
+        // DbgHelp reports HRESULTs. Capture the error before any cleanup API
+        // overwrites it. Threads or modules disappearing can cause partial reads.
+        const DWORD error = saved ? ERROR_SUCCESS : GetLastError();
+        if (saved)
+            break;
+        const bool transient = error == DWORD(HRESULT_FROM_WIN32(ERROR_PARTIAL_COPY))
+                            || error == DWORD(HRESULT_FROM_WIN32(ERROR_BAD_LENGTH));
+        if (!transient || attempt == 2) {
+            dumpFailure(report, "MiniDumpWriteDump", error);
+            break;
+        }
+        // Reuse only an empty file. A failed attempt may have left dump data
+        // behind, including a valid header that is not a complete dump.
+        if (!SetFilePointerEx(output, {}, nullptr, FILE_BEGIN) || !SetEndOfFile(output)) {
+            dumpFailure(report, "resetting incomplete dump", GetLastError());
+            break;
+        }
+        Sleep(50);
+    }
+    CloseHandle(output);
+    if (saved) {
+        if (report != INVALID_HANDLE_VALUE)
+            line(report, "Memory dump: written\n");
+    } else if (!DeleteFileW(path)) {
+        dumpFailure(report, "removing incomplete dump", GetLastError());
+    }
+}
+
 inline LONG WINAPI crash(EXCEPTION_POINTERS *exception) {
     if (exception && exception->ExceptionRecord && enabled(folder, L"logging.enabled") &&
         InterlockedCompareExchange(&capturing, 1, 0) == 0) {
@@ -123,23 +178,15 @@ inline LONG WINAPI crash(EXCEPTION_POINTERS *exception) {
             }
 #endif
             FlushFileBuffers(file);
-            CloseHandle(file);
         }
         appendAt(folder, component, "ERROR", "Unhandled exception; see crash report");
-        if (dump && enabled(folder, L"dumps.enabled")) {
+        if (enabled(folder, L"dumps.enabled")) {
             swprintf_s(path, L"%s.dmp", stem);
-            HANDLE output = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_NEW,
-                                        FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (output != INVALID_HANDLE_VALUE) {
-                MINIDUMP_EXCEPTION_INFORMATION info{GetCurrentThreadId(), exception, FALSE};
-                const bool saved = dump(GetCurrentProcess(), GetCurrentProcessId(), output, MiniDumpNormal,
-                                        &info, nullptr, nullptr);
-                CloseHandle(output);
-                if (!saved) {
-                    DeleteFileW(path);
-                    appendAt(folder, component, "ERROR", "Memory dump could not be written");
-                }
-            }
+            writeDump(path, exception, file);
+        }
+        if (file != INVALID_HANDLE_VALUE) {
+            FlushFileBuffers(file);
+            CloseHandle(file);
         }
     }
     return previous ? previous(exception) : EXCEPTION_CONTINUE_SEARCH;
@@ -178,8 +225,11 @@ inline void initialize(const wchar_t *directory, const char *process, const char
     // Load only the Windows copy; do not search the current directory.
     if (!dbghelp)
         dbghelp = LoadLibraryExW(L"dbghelp.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (!dbghelp)
+        dumpLoadError = GetLastError();
     if (dbghelp) {
         dump = reinterpret_cast<decltype(dump)>(GetProcAddress(dbghelp, "MiniDumpWriteDump"));
+        dumpLoadError = dump ? ERROR_SUCCESS : GetLastError();
         walk = reinterpret_cast<decltype(walk)>(GetProcAddress(dbghelp, "StackWalk64"));
         functions =
             reinterpret_cast<decltype(functions)>(GetProcAddress(dbghelp, "SymFunctionTableAccess64"));

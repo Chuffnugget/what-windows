@@ -5,6 +5,7 @@
 #include "modules/windows/media/MediaSessions.h"
 #include "modules/beacn/InstalledFiles.h"
 #include <windows.h>
+#include <dbghelp.h>
 #include <shellapi.h>
 #include <shldisp.h>
 #include <propsys.h>
@@ -4914,7 +4915,6 @@ private slots:
         QTemporaryDir dir;
         Controller local(dir.path(), true);
         local.stopService();
-        local.settings.setValue("ui/transition_style", "standard");
         local.setUiTiming("pages", 800);
         UpdateManager updater(dir.path(), true);
         QQmlApplicationEngine engine;
@@ -5274,7 +5274,7 @@ private slots:
         QCOMPARE(warnings.count(), 0);
     }
 
-    void qmlPageSlidesAndPromptTransitions() {
+    void qmlPageSlidesAndImmediatePrompts() {
         QTemporaryDir dir;
         Controller local(dir.path(), true);
         local.stopService();
@@ -5403,10 +5403,9 @@ private slots:
         QTRY_VERIFY(!dialog->property("visible").toBool());
     }
 
-    void windowTransitionsAndPreference() {
+    void windowActionsAndNativeAnimationPreference() {
         QTemporaryDir dir;
         Controller local(dir.path(), true);
-        local.settings.setValue("ui/transition_style", "standard");
         UpdateManager updater(dir.path(), true);
         QQmlApplicationEngine engine;
         engine.setInitialProperties(
@@ -5433,7 +5432,6 @@ private slots:
         }
 
         QVERIFY(QMetaObject::invokeMethod(window, "performWindowAction", Q_ARG(QVariant, "minimise")));
-        QVERIFY(!window->findChild<QQuickWindow *>("fluidWindowTransition"));
         QCOMPARE(window->opacity(), 1.0);
         QTRY_COMPARE(window->visibility(), QWindow::Minimized);
         window->showNormal();
@@ -12942,44 +12940,104 @@ private slots:
         QTRY_VERIFY(!module->property("active").toBool());
     }
 
+    void nativeCrashReportsAndDumpsRespectOptIn_data() {
+        QTest::addColumn<bool>("logging");
+        QTest::addColumn<bool>("dumps");
+        QTest::addColumn<QString>("scenario");
+        QTest::addColumn<bool>("expectDump");
+        QTest::addColumn<int>("attempts");
+        QTest::addColumn<QByteArray>("error");
+        QTest::newRow("disabled") << false << false << QString("crash") << false << 0 << QByteArray();
+        QTest::newRow("dumps-without-logging") << false << true << QString("crash") << false << 0 << QByteArray();
+        QTest::newRow("text-only") << true << false << QString("crash") << false << 0 << QByteArray();
+        QTest::newRow("dump-enabled") << true << true << QString("crash") << true << 0 << QByteArray();
+        QTest::newRow("transient-partial-copy") << true << true << QString("partial-copy-once") << true << 2 << QByteArray();
+        QTest::newRow("persistent-partial-copy") << true << true << QString("partial-copy-always") << false << 3 << QByteArray("0x8007012B");
+        QTest::newRow("access-denied") << true << true << QString("denied") << false << 1 << QByteArray("0x80070005");
+        QTest::newRow("missing-dump-api") << true << true << QString("missing-api") << false << 0 << QByteArray("0x0000007F");
+    }
+
     void nativeCrashReportsAndDumpsRespectOptIn() {
-        for (int mode = 0; mode < 3; ++mode) {
-            QTemporaryDir dir;
-            auto marker = [&](QString name) {
-                QFile file(dir.filePath(name));
-                return file.open(QIODevice::WriteOnly);
-            };
-            if (mode)
-                QVERIFY(marker("logging.enabled"));
-            if (mode == 2)
-                QVERIFY(marker("dumps.enabled"));
-            QProcess process;
-            process.start(QCoreApplication::applicationDirPath() + "/diagnostic_crash_fixture.exe",
-                          {dir.path(), "crash"});
-            QVERIFY(process.waitForStarted(3000));
-            QVERIFY(process.waitForFinished(15000));
-            QVERIFY(process.exitCode() != 0);
-            const auto reports = QDir(dir.path()).entryList({"crash-*.txt"}, QDir::Files);
-            QCOMPARE(reports.size(), mode ? 1 : 0);
-            QCOMPARE(QDir(dir.path()).entryList({"crash-*.dmp"}, QDir::Files).size(), mode == 2 ? 1 : 0);
-            if (mode) {
-                QFile report(dir.filePath(reports.first()));
-                QVERIFY(report.open(QIODevice::ReadOnly));
-                const auto data = report.readAll();
-                QVERIFY(data.contains("0xC0000005"));
-                QVERIFY(data.contains("WindowsHelper"));
-                QVERIFY(data.contains("Dynamic Lighting"));
-                QVERIFY(data.count("+0x") >= 2);
-                QVERIFY(!data.contains(dir.path().toUtf8()));
-                QFile activity(dir.filePath("activity.log"));
-                QVERIFY(activity.open(QIODevice::ReadOnly));
-                QVERIFY(activity.readAll().contains("[WindowsHelper][Dynamic Lighting][PID"));
+        QFETCH(bool, logging);
+        QFETCH(bool, dumps);
+        QFETCH(QString, scenario);
+        QFETCH(bool, expectDump);
+        QFETCH(int, attempts);
+        QFETCH(QByteArray, error);
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        auto marker = [&](const QString &name) {
+            QFile file(dir.filePath(name));
+            return file.open(QIODevice::WriteOnly);
+        };
+        if (logging)
+            QVERIFY(marker("logging.enabled"));
+        if (dumps)
+            QVERIFY(marker("dumps.enabled"));
+        QProcess process;
+        process.start(QCoreApplication::applicationDirPath() + "/diagnostic_crash_fixture.exe",
+                      {dir.path(), scenario});
+        QVERIFY2(process.waitForStarted(3000), qPrintable(process.errorString()));
+        QVERIFY2(process.waitForFinished(15000), qPrintable(process.errorString()));
+        const auto reports = QDir(dir.path()).entryList({"crash-*.txt"}, QDir::Files);
+        const auto dumpFiles = QDir(dir.path()).entryList({"crash-*.dmp"}, QDir::Files);
+        auto read = [&](const QString &name) {
+            QFile file(dir.filePath(name));
+            return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+        };
+        const auto report = reports.isEmpty() ? QByteArray() : read(reports.first());
+        const auto activity = read("activity.log");
+        const auto output = process.readAllStandardError();
+        // The temporary profile is deleted on return. Put its safe text evidence
+        // in QtTest's failure output, which CI already retains. Never upload dumps.
+        const auto detail = QString("Exit=0x%1; reports=%2; dumps=%3; %4")
+            .arg(quint32(process.exitCode()), 8, 16, QLatin1Char('0'))
+            .arg(reports.size()).arg(dumpFiles.size())
+            .arg(QString::fromUtf8(report + activity + output).simplified());
+        QVERIFY2(quint32(process.exitCode()) == EXCEPTION_ACCESS_VIOLATION, qPrintable(detail));
+        QVERIFY2(reports.size() == (logging ? 1 : 0), qPrintable(detail));
+        QVERIFY2(dumpFiles.size() == (expectDump ? 1 : 0), qPrintable(detail));
+        QCOMPARE(output.count("Dump attempt "), attempts);
+        if (logging) {
+            QVERIFY(report.contains("0xC0000005"));
+            QVERIFY(report.contains("WindowsHelper"));
+            QVERIFY(report.contains("Dynamic Lighting"));
+            QVERIFY(report.count("+0x") >= 2);
+            QVERIFY(!report.contains(dir.path().toUtf8()));
+            QVERIFY(activity.contains("[WindowsHelper][Dynamic Lighting][PID"));
+        } else {
+            QVERIFY(activity.isEmpty());
+        }
+        if (!error.isEmpty()) {
+            QVERIFY2(report.contains(error), qPrintable(detail));
+            QVERIFY2(activity.contains(error), qPrintable(detail));
+            QVERIFY(!report.contains("Memory dump: written"));
+        }
+        if (expectDump) {
+            QVERIFY2(report.contains("Memory dump: written"), qPrintable(detail));
+            const auto bytes = read(dumpFiles.first());
+            QVERIFY(bytes.size() >= qsizetype(sizeof(MINIDUMP_HEADER)));
+            MINIDUMP_HEADER header{};
+            memcpy(&header, bytes.constData(), sizeof(header));
+            QCOMPARE(header.Signature, ULONG32(MINIDUMP_SIGNATURE));
+            QCOMPARE(header.Version & 0xffff, ULONG32(MINIDUMP_VERSION));
+            QVERIFY(quint64(header.StreamDirectoryRva) + quint64(header.NumberOfStreams) * sizeof(MINIDUMP_DIRECTORY)
+                    <= quint64(bytes.size()));
+            bool foundException = false;
+            for (ULONG32 i = 0; i < header.NumberOfStreams; ++i) {
+                MINIDUMP_DIRECTORY stream{};
+                memcpy(&stream, bytes.constData() + header.StreamDirectoryRva + i * sizeof(stream), sizeof(stream));
+                QVERIFY(quint64(stream.Location.Rva) + stream.Location.DataSize <= quint64(bytes.size()));
+                if (stream.StreamType != ExceptionStream)
+                    continue;
+                QVERIFY(stream.Location.DataSize >= sizeof(MINIDUMP_EXCEPTION_STREAM));
+                MINIDUMP_EXCEPTION_STREAM exception{};
+                memcpy(&exception, bytes.constData() + stream.Location.Rva, sizeof(exception));
+                QCOMPARE(exception.ExceptionRecord.ExceptionCode, ULONG32(EXCEPTION_ACCESS_VIOLATION));
+                QCOMPARE(exception.ExceptionRecord.NumberParameters, ULONG32(2));
+                foundException = true;
             }
-            if (mode == 2) {
-                QFile dump(dir.filePath(QDir(dir.path()).entryList({"*.dmp"}).first()));
-                QVERIFY(dump.open(QIODevice::ReadOnly));
-                QCOMPARE(dump.read(4), QByteArray("MDMP"));
-            }
+            QVERIFY(foundException);
         }
     }
 

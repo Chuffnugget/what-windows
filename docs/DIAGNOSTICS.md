@@ -100,6 +100,11 @@ Crash reporting runs in the faulting process and may fail after force-terminatio
 fail-fast, severe heap or stack corruption, or a hang. WHAT does not take automatic
 hang dumps. The parent also records helper exits and timeouts.
 
+If a dump cannot be written, the text report and activity log include the failed
+operation and its Windows error code. Temporary partial-read failures are retried
+up to three times; permanent errors are reported immediately. Incomplete dumps
+are removed so they cannot be mistaken for usable crash reports.
+
 Native stack addresses need matching build symbols to resolve function names and
 line numbers. A module label identifies the reporting component; it does not
 establish the cause of the crash.
