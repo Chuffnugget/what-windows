@@ -1,0 +1,177 @@
+name: Windows build and release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    environment: ${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Locate Windows project
+        run: |
+          if (!(Test-Path "$env:GITHUB_WORKSPACE/CMakeLists.txt")) { throw 'Run this workflow from the what-windows repository root, not the umbrella/submodule repository.' }
+          "PROJECT_DIR=$env:GITHUB_WORKSPACE" >> $env:GITHUB_ENV
+      - name: Validate release tag against source version
+        run: |
+          . "$env:PROJECT_DIR/scripts/Release.Common.ps1"
+          $version = Get-ProjectVersion
+          $expectedTag = 'v' + $version
+          Write-Host "Source version: $version; Git ref: $env:GITHUB_REF_NAME"
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne $expectedTag) {
+            throw "Release tag '$env:GITHUB_REF_NAME' does not match source version '$version' (expected '$expectedTag'). Commit the version bump before tagging. Re-running this old tag will not include a newer version commit."
+          }
+      - name: Validate packaging policy without installation
+        run: |
+          ./tests/release-policy-tests.ps1
+          ./tests/release-upload-tests.ps1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: qt-cache
+        with:
+          path: ${{ runner.temp }}/what-qt
+          key: windows-qt-6.11.2-msvc2022-openssl3-websockets-shadertools-v2
+      - name: Install Qt 6.11.2 MSVC and OpenSSL
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        run: |
+          # Use the runner's 7-Zip to avoid py7zr's Windows extraction failures.
+          $sevenZip = Join-Path $env:ProgramFiles '7-Zip/7z.exe'
+          if (!(Test-Path -LiteralPath $sevenZip -PathType Leaf)) { throw 'The runner is missing 7-Zip.' }
+          python -m pip install aqtinstall==3.3.0 py7zr==1.1.3
+          if ($LASTEXITCODE -ne 0) { throw 'Could not install Qt downloader' }
+          python scripts/aqt_qt611.py --config scripts/aqt-ci.ini install-qt windows desktop 6.11.2 win64_msvc2022_64 -m qtwebsockets qtshadertools --external "$sevenZip" --outputdir "$env:RUNNER_TEMP/what-qt"
+          if ($LASTEXITCODE -ne 0) { throw 'Qt 6.11.2 installation failed' }
+          python -m aqt --config scripts/aqt-ci.ini install-tool windows desktop tools_opensslv3_x64 --external "$sevenZip" --outputdir "$env:RUNNER_TEMP/what-qt"
+          if ($LASTEXITCODE -ne 0) { throw 'OpenSSL installation failed' }
+          python -m aqt --config scripts/aqt-ci.ini install-tool windows desktop tools_ninja --external "$sevenZip" --outputdir "$env:RUNNER_TEMP/what-qt"
+          if ($LASTEXITCODE -ne 0) { throw 'Ninja installation failed' }
+      - name: Verify Qt kit
+        run: |
+          $qt = "$env:RUNNER_TEMP/what-qt/6.11.2/msvc2022_64"
+          $version = & "$qt/bin/qmake.exe" -query QT_VERSION
+          if ($LASTEXITCODE -ne 0 -or $version.Trim() -ne '6.11.2') { throw 'Expected Qt 6.11.2' }
+          "QT_ROOT_DIR=$qt" >> $env:GITHUB_ENV
+          "IQTA_TOOLS=$env:RUNNER_TEMP/what-qt/Tools" >> $env:GITHUB_ENV
+      - name: Configure CI tool paths
+        run: |
+          $tools = $env:IQTA_TOOLS
+          $config = @{ Qmake="$env:QT_ROOT_DIR/bin/qmake.exe"; Ninja="$tools/Ninja/ninja.exe"; CMake=(Get-Command cmake.exe).Source; OpenSSLRoot="$tools/OpenSSLv3/Win_x64" }
+          $config | ConvertTo-Json | Set-Content "$env:PROJECT_DIR/release.local.json"
+          Set-Location $env:PROJECT_DIR
+          . ./scripts/Release.Common.ps1
+      - name: Build and test Release
+        run: |
+          Set-Location $env:PROJECT_DIR
+          ./scripts/Build-Release.ps1
+      - name: Prepare portable and source artifacts
+        run: |
+          $state = Get-Content "$env:PROJECT_DIR/build/latest-release.json" -Raw | ConvertFrom-Json
+          $artifacts = Join-Path $env:RUNNER_TEMP 'public-artifacts'
+          New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
+          "ARTIFACT_DIR=$artifacts" >> $env:GITHUB_ENV
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [IO.Compression.ZipFile]::CreateFromDirectory($state.runtime,"$artifacts/WHAT-$($state.version)-Windows-x64-Portable.zip")
+          & "$env:PROJECT_DIR/scripts/Write-SourceArchive.ps1" -Destination "$artifacts/WHAT-$($state.version)-Source.zip"
+          & "$env:PROJECT_DIR/scripts/Prepare-CorrespondingSource.ps1" -Runtime $state.runtime -Destination $artifacts
+      - name: Sign installer and updater assets
+        timeout-minutes: 20
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          SIGNING_PFX_BASE64: ${{ secrets.SIGNING_PFX_BASE64 }}
+          SIGNING_CER_BASE64: ${{ secrets.SIGNING_CER_BASE64 }}
+          WHAT_PFX_PASSWORD: ${{ secrets.SIGNING_PFX_PASSWORD }}
+          SIGNING_PUBLISHER: ${{ vars.SIGNING_PUBLISHER }}
+        run: |
+          if (!$env:SIGNING_PFX_BASE64 -or !$env:SIGNING_CER_BASE64 -or !$env:WHAT_PFX_PASSWORD -or !$env:SIGNING_PUBLISHER) { throw 'Configure release signing secrets and SIGNING_PUBLISHER. CI never generates a replacement signing identity.' }
+          Write-Host "Signing inputs are present; preparing the configured identity."
+          $private = Join-Path $env:RUNNER_TEMP 'release-signing'
+          New-Item -ItemType Directory -Path $private -Force | Out-Null
+          $temporaryTrust = $null
+          try {
+            [IO.File]::WriteAllBytes("$private/publisher.pfx",[Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
+            [IO.File]::WriteAllBytes("$private/publisher.cer",[Convert]::FromBase64String($env:SIGNING_CER_BASE64))
+            $config = Get-Content "$env:PROJECT_DIR/release.local.json" -Raw | ConvertFrom-Json -AsHashtable
+            $config.SigningPfx="$private/publisher.pfx"; $config.SigningCertificate="$private/publisher.cer"; $config.Publisher=$env:SIGNING_PUBLISHER
+            $config | ConvertTo-Json | Set-Content "$env:PROJECT_DIR/release.local.json"
+            Write-Host "Checking publisher certificate and temporary runner trust."
+            # Trust only the configured self-signed public certificate on this disposable runner.
+            # SignTool /pa still verifies the package and timestamp; no verification bypass.
+            $publisherCertificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new("$private/publisher.cer")
+            try {
+              if ($publisherCertificate.Subject -ne $env:SIGNING_PUBLISHER) { throw 'Signing certificate does not match SIGNING_PUBLISHER.' }
+              if ($publisherCertificate.Subject -eq $publisherCertificate.Issuer) {
+                $trustPath = "Cert:\LocalMachine\TrustedPeople\$($publisherCertificate.Thumbprint)"
+                if (!(Test-Path -LiteralPath $trustPath)) {
+                  $temporaryTrust = $trustPath
+                  if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') { throw 'Temporary signing trust is restricted to disposable GitHub-hosted runners.' }
+                  # Trust this package-signing leaf only; do not grant root CA trust.
+                  # Use the disposable runner's machine store, with explicit non-interactive import.
+                  $trustImport = [Diagnostics.Process]::new()
+                  try {
+                    $trustImport.StartInfo.FileName = "$env:SystemRoot/System32/certutil.exe"
+                    $trustImport.StartInfo.UseShellExecute = $false
+                    $trustImport.StartInfo.CreateNoWindow = $true
+                    foreach ($argument in @('-f','-addstore','TrustedPeople',"$private/publisher.cer")) { $trustImport.StartInfo.ArgumentList.Add($argument) }
+                    if (!$trustImport.Start()) { throw 'Could not start temporary certificate trust import.' }
+                    if (!$trustImport.WaitForExit(30000)) { $trustImport.Kill($true); throw 'Temporary certificate trust import timed out after 30 seconds.' }
+                    if ($trustImport.ExitCode -ne 0 -or !(Test-Path -LiteralPath $trustPath)) { throw 'Temporary certificate trust import failed.' }
+                  } finally { $trustImport.Dispose() }
+                }
+              }
+            } finally { $publisherCertificate.Dispose() }
+            Set-Location $env:PROJECT_DIR
+            Write-Host "Temporary trust is ready; building and signing installers."
+            ./scripts/Build-Installers.ps1
+            $result = Get-Content build/latest-installers.json -Raw | ConvertFrom-Json
+            Write-Host "Installers built; validating updater signatures and handoff."
+            ./tests/update-helper-tests.ps1 -PackagePath $result.updatePackage -CertificatePath "$private/publisher.cer"
+            if ($LASTEXITCODE -ne 0) { throw 'Updater helper validation failed' }
+            Copy-Item -LiteralPath $result.installer,$result.updatePackage,$result.updateManifest,$result.portable -Destination $env:ARTIFACT_DIR -Force
+          } finally {
+            try {
+              if ($temporaryTrust) { Remove-Item -LiteralPath $temporaryTrust -ErrorAction Stop }
+            } finally {
+              # Exact file paths only; never archive the runner's signing directory.
+              Remove-Item -LiteralPath "$private/publisher.pfx","$private/publisher.cer" -ErrorAction SilentlyContinue
+            }
+          }
+      - name: Upload and verify release directly from the build
+        if: startsWith(github.ref, 'refs/tags/')
+        timeout-minutes: 15
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: ./scripts/Publish-Release.ps1 -ArtifactDirectory $env:ARTIFACT_DIR -Tag $env:RELEASE_TAG -Repository $env:RELEASE_REPOSITORY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        continue-on-error: true
+        with:
+          name: windows-distribution
+          path: ${{ env.ARTIFACT_DIR }}/*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: windows-build-logs
+          path: ${{ env.PROJECT_DIR }}/build/logs/**/*.txt
+          if-no-files-found: ignore

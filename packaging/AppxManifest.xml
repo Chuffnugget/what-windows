@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+ xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+ xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+ xmlns:uap7="http://schemas.microsoft.com/appx/manifest/uap/windows10/7"
+ xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+ xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+ xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+ xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+ IgnorableNamespaces="uap uap3 uap7 desktop6 desktop com rescap">
+  <Identity Name="WHAT.Desktop" Publisher="CN=WHAT" Version="0.7.0.0" ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>WHAT</DisplayName><PublisherDisplayName>WHAT</PublisherDisplayName><Logo>Assets\StoreLogo.png</Logo>
+    <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
+    <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
+  </Properties>
+  <Dependencies><TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22000.0" MaxVersionTested="10.0.26100.0" /></Dependencies>
+  <Resources><Resource Language="en-gb" /></Resources>
+  <Applications>
+    <Application Id="App" Executable="WHAT.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="WHAT" Description="Windows readings, controls and optional modules for Home Assistant" BackgroundColor="transparent" Square150x150Logo="Assets\Logo150.png" Square44x44Logo="Assets\Logo44.png" />
+      <Extensions>
+        <desktop:Extension Category="windows.startupTask" Executable="WHAT.exe" EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask TaskId="WHATStartup" Enabled="false" DisplayName="WHAT" />
+        </desktop:Extension>
+        <desktop:Extension Category="windows.toastNotificationActivation">
+          <desktop:ToastNotificationActivation ToastActivatorCLSID="D34BBE21-98A6-4A15-AA82-84E644B7C02A" />
+        </desktop:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:ExeServer Executable="WHAT.exe" Arguments="--toast-activated" DisplayName="WHAT Notifications">
+              <com:Class Id="D34BBE21-98A6-4A15-AA82-84E644B7C02A" DisplayName="WHAT Notifications" />
+            </com:ExeServer>
+          </com:ComServer>
+        </com:Extension>
+        <uap3:Extension Category="windows.appExtension">
+          <uap3:AppExtension Name="com.microsoft.windows.lighting" Id="DynamicLighting" PublicFolder="Assets" DisplayName="WHAT Dynamic Lighting" />
+        </uap3:Extension>
+      </Extensions>
+    </Application>
+    <Application Id="Bridge" Executable="helpers\WHAT.WindowsHelper.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements AppListEntry="none" DisplayName="WHAT Windows access" Description="Optional media, notification and Dynamic Lighting access" BackgroundColor="transparent" Square150x150Logo="Assets\Logo150.png" Square44x44Logo="Assets\Logo44.png" />
+    </Application>
+  </Applications>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" /><rescap:Capability Name="unvirtualizedResources" />
+    <uap3:Capability Name="userNotificationListener" /><uap7:Capability Name="globalMediaControl" />
+    <!-- Wi-Fi network name and signal strength use Windows location consent. -->
+    <DeviceCapability Name="location" />
+  </Capabilities>
+</Package>

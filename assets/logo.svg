@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="230 120 564 752">
+  <title>Five-piece house logo</title>
+  <desc>WHAT's approved resting logo: fixed-size roof and four panels, with equal 30-unit gaps. Matches AnimatedLogo.qml at progress zero.</desc>
+
+  <path id="roof" fill="#1EB9E8" d="M 230 360 L 512 120 L 794 360 Z"/>
+
+  <rect id="top-left" x="230" y="390" width="267" height="226" fill="#1EB9E8"/>
+  <rect id="top-right" x="527" y="390" width="267" height="226" fill="#1EB9E8"/>
+  <rect id="bottom-left" x="230" y="646" width="267" height="226" fill="#1EB9E8"/>
+  <rect id="bottom-right" x="527" y="646" width="267" height="226" fill="#1EB9E8"/>
+</svg>

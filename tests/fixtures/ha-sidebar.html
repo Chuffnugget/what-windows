@@ -1,0 +1,79 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Home Assistant sidebar fixture</title>
+<style>body { margin: 0; background: #202830; color: white; }</style>
+<home-assistant></home-assistant>
+<script>
+// Reproduce the frontend's shell contract, including separate shadow roots and
+// asynchronous menu updates. The production injection runs in real WebView2.
+customElements.define('home-assistant-main', class extends HTMLElement {
+    constructor() {
+        super();
+        this.attachShadow({mode: 'open'}).innerHTML = `
+            <style>
+                :host { display: block; height: 100vh; --ha-sidebar-width: 56px; }
+                :host([expanded]) { --ha-sidebar-width: 256px; }
+                :host([modal]) { --ha-sidebar-width: unset; }
+                ha-sidebar { display: block; width: var(--ha-sidebar-width); }
+            </style>
+            <ha-sidebar>Sidebar fixture</ha-sidebar>`;
+        this.updateComplete = Promise.resolve();
+        this.addEventListener('hass-toggle-menu', event => {
+            queueMicrotask(() => this.toggleAttribute('expanded', event.detail.open));
+        });
+    }
+    connectedCallback() { this.setAttribute('expanded', ''); }
+});
+customElements.define('home-assistant', class extends HTMLElement {
+    constructor() {
+        super();
+        this.attachShadow({mode: 'open'}).innerHTML = '<home-assistant-main></home-assistant-main>';
+        this.updateComplete = Promise.resolve();
+    }
+});
+
+const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+const assert = (value, message) => { if (!value) throw Error(message); };
+let stage = 0;
+window.chrome.webview.addEventListener('message', async event => {
+    if (event.data?.type !== 'what-sidebar' || stage > 1) return;
+    const next = stage++;
+    try {
+        await frame();
+        const shell = document.querySelector('home-assistant');
+        const main = shell.shadowRoot.querySelector('home-assistant-main');
+        const grip = main.shadowRoot.querySelector('#what-sidebar-grip');
+        const sidebar = main.shadowRoot.querySelector('ha-sidebar');
+        const key = value => grip.dispatchEvent(new KeyboardEvent('keydown', {key: value, cancelable: true}));
+        assert(grip, 'missing grip');
+        if (next === 0) {
+            assert(sidebar.getBoundingClientRect().width === 310, 'saved width not applied');
+            key('ArrowRight');
+            await frame();
+            assert(sidebar.getBoundingClientRect().width === 330, 'resize did not change sidebar');
+            key('Enter');
+            await frame();
+            assert(sidebar.getBoundingClientRect().width === 56, 'collapse did not use native icon rail');
+            key('ArrowRight');
+            await frame();
+            assert(sidebar.getBoundingClientRect().width === 330, 'expand forgot width');
+            main.style.direction = 'rtl';
+            key('ArrowLeft');
+            await frame();
+            assert(sidebar.getBoundingClientRect().width === 350, 'RTL resize failed');
+            main.setAttribute('modal', '');
+            assert(getComputedStyle(grip).display === 'none', 'mobile drawer has an unwanted grip');
+            shell.shadowRoot.replaceChildren(document.createElement('home-assistant-main'));
+            await frame();
+            assert(!grip.isConnected, 'old grip was retained');
+        } else {
+            assert(sidebar.getBoundingClientRect().width === 350, 'replacement forgot saved width');
+            assert(main.shadowRoot.querySelectorAll('#what-sidebar-grip').length === 1, 'duplicate grips');
+            fetch('/result?ok=1');
+        }
+    } catch (error) {
+        stage = 2;
+        fetch('/result?error=' + encodeURIComponent(error.message));
+    }
+});
+</script>

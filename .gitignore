@@ -1,0 +1,11 @@
+build/
+windows-x64/
+*.user
+/.qtcreator/
+test-*/
+out/
+_local/
+release.local.json
+*.pfx
+*.key
+*.pem

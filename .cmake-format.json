@@ -1,0 +1,9 @@
+{
+  "format": {
+    "line_width": 100,
+    "tab_size": 4,
+    "max_pargs_hwrap": 8,
+    "max_subgroups_hwrap": 2,
+    "dangle_parens": true
+  }
+}

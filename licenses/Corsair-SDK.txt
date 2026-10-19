@@ -1,0 +1,23 @@
+Corsair iCUE SDK 4.0.84
+
+Provider: Corsair Memory, Inc.
+Upstream: https://github.com/CorsairOfficial/cue-sdk
+Reference: https://corsairofficial.github.io/cue-sdk/
+Release: https://github.com/CorsairOfficial/cue-sdk/releases/tag/v4.0.84
+Archive SHA-256: eb4414cf505145f3e507dc839ad587bf7ca684d64be3d9a834f416a136736d5d
+
+The unmodified API headers under src/third_party/icue come from this release.
+scripts/Prepare-iCueSdk.ps1 downloads and verifies the official archive, then
+copies its redist/x64/iCUESDK.x64_2019.dll into the generated runtime. The SDK is
+a third-party Corsair component; WHAT's LGPL licence does not relicense it.
+No SDK binary is embedded in WHAT source ZIPs. The archive also supplies
+Corsair's Overview and Reference PDF under its doc directory.
+This original documentation, including its EULA, is included in binary releases
+as Corsair-SDK-Overview-and-EULA.pdf. See docs/REDISTRIBUTION.md in the source
+archive for distribution notes.
+
+The generated SDK helpers directory also includes the Microsoft Visual C++ x64
+runtime DLLs from the builder's licensed Visual Studio redist directory. These
+remain Microsoft components under their applicable redistribution terms, not
+LGPL-licensed WHAT code. See:
+https://learn.microsoft.com/cpp/windows/redistributing-visual-cpp-files

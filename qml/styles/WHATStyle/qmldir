@@ -1,0 +1,3 @@
+module WHATStyle
+import QtQuick.Controls.Basic auto
+ToolTip 6.0 ToolTip.qml

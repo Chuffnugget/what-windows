@@ -1,0 +1,6 @@
+Support service icons from Simple Icons (CC0-1.0).
+https://github.com/simple-icons/simple-icons
+Buy Me a Coffee, PayPal and GitHub Sponsors names and marks belong to their respective owners.
+Icons are coloured to suit the dark About page.
+
+Wallpaper Engine logo: installed application UI asset, used for product identification; not covered by Simple Icons CC0. Wallpaper Engine name and mark belong to their respective owners. WHAT is not affiliated with Wallpaper Engine. https://www.wallpaperengine.io/
