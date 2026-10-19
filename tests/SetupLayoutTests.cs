@@ -8,6 +8,34 @@ using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
 internal static class SetupLayoutTests {
+    const int Windows11Build = 22621;
+
+    static void CheckCompatibility(string package, string native, int windowsBuild, bool allowed) {
+        string issue = SetupProgram.ArchitectureIssue(package, native, windowsBuild);
+        if ((issue.Length == 0) != allowed)
+            throw new Exception("Compatibility check failed: package=" + package + ", native=" + native
+                + ", Windows build=" + windowsBuild + ", expected=" + (allowed ? "allowed" : "blocked")
+                + ", result=" + issue);
+    }
+
+    static void CheckPlatformRequirements() {
+        // Architecture cases use a supported OS, independently of the CI host.
+        CheckCompatibility("arm64", "AMD64", Windows11Build, false);
+        CheckCompatibility("arm64", "ARM64", Windows11Build, true);
+        CheckCompatibility("x64", "AMD64", Windows11Build, true);
+        CheckCompatibility("x64", "ARM64", Windows11Build, true);
+        CheckCompatibility("x64", "x86", Windows11Build, false);
+        foreach (int build in new[] { 19045, 20348, 21999 }) {
+            CheckCompatibility("x64", "AMD64", build, false);
+            CheckCompatibility("arm64", "ARM64", build, false);
+        }
+        CheckCompatibility("x64", "AMD64", 22000, true);
+        CheckCompatibility("arm64", "ARM64", 22000, false);
+        CheckCompatibility("arm64", "ARM64", 22620, false);
+        CheckCompatibility("arm64", "ARM64", 22621, true);
+        Console.WriteLine("PASS: architecture and Windows version requirements, including Server 2022");
+    }
+
     static void CheckMetrics(string path) {
         string qml = File.ReadAllText(path);
         foreach (var field in typeof(SetupTheme).GetFields(BindingFlags.Static | BindingFlags.NonPublic)) {
@@ -165,18 +193,8 @@ internal static class SetupLayoutTests {
         try {
             CheckMetrics(args[1]);
             CheckPackageArchitecture();
-        CheckLogRetention();
-            if (SetupProgram.ArchitectureIssue("arm64", "AMD64").Length == 0
-                || SetupProgram.ArchitectureIssue("arm64", "ARM64").Length != 0
-                || SetupProgram.ArchitectureIssue("x64", "AMD64").Length != 0
-                || SetupProgram.ArchitectureIssue("x64", "ARM64").Length != 0
-                || SetupProgram.ArchitectureIssue("x64", "x86").Length == 0)
-                throw new Exception("Incorrect native architecture compatibility check.");
-            if (SetupProgram.ArchitectureIssue("arm64", "ARM64", 22000).Length == 0
-                || SetupProgram.ArchitectureIssue("arm64", "ARM64", 22621).Length != 0
-                || SetupProgram.ArchitectureIssue("x64", "AMD64", 19045).Length == 0
-                || SetupProgram.ArchitectureIssue("x64", "AMD64", 22000).Length != 0)
-                throw new Exception("Incorrect minimum Windows version check.");
+            CheckLogRetention();
+            CheckPlatformRequirements();
             using (var process = Process.Start(SetupProgram.PowerShellStartInfo(
                 "Write-Progress -Activity 'Fixture'; Write-Output 'fixture output'; [Console]::Error.WriteLine('fixture failure'); exit 7", args[0]))) {
                 var stdout = process.StandardOutput.ReadToEndAsync();
@@ -190,7 +208,7 @@ internal static class SetupLayoutTests {
             Console.WriteLine("PASS: architecture checks and plain-text PowerShell failures");
             foreach (float scale in new[] { 1f, 1.25f, 1.5f, 2f }) {
                 CheckPrompts(scale, args[0]);
-                using (var mismatch = new SetupWindow("arm64", "AMD64")) {
+                using (var mismatch = new SetupWindow("arm64", "AMD64", Windows11Build)) {
                     ShowScaled(mismatch, scale);
                     if (Field<Button>(mismatch, "install").Enabled || Field<Button>(mismatch, "install").Visible
                         || mismatch.AcceptButton != Field<Button>(mismatch, "close")
@@ -198,8 +216,19 @@ internal static class SetupLayoutTests {
                         throw new Exception("Wrong architecture must be blocked before installation.");
                     Check(mismatch, "wrong-architecture-" + (int)(scale * 100), args[0]);
                 }
-                using (var form = new SetupWindow("x64", "AMD64")) {
+                using (var unsupported = new SetupWindow("x64", "AMD64", 20348)) {
+                    ShowScaled(unsupported, scale);
+                    if (Field<Button>(unsupported, "install").Enabled || Field<Button>(unsupported, "install").Visible
+                        || unsupported.AcceptButton != Field<Button>(unsupported, "close")
+                        || !Field<Label>(unsupported, "status").Text.Contains("Windows 11"))
+                        throw new Exception("An unsupported Windows version must be blocked before installation.");
+                    Check(unsupported, "unsupported-windows-" + (int)(scale * 100), args[0]);
+                }
+                using (var form = new SetupWindow("x64", "AMD64", Windows11Build)) {
                     ShowScaled(form, scale);
+                    if (!Field<Button>(form, "install").Enabled || !Field<Button>(form, "install").Visible
+                        || form.AcceptButton != Field<Button>(form, "install"))
+                        throw new Exception("A supported Windows version must offer installation.");
                     string suffix = "-" + (int)(scale * 100);
                     Check(form, "initial" + suffix, args[0]);
                     form.PreviewBusy();

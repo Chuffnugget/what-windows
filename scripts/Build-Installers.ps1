@@ -47,6 +47,8 @@ Start-Transcript -Path "$logs/Build-Installers.log" | Out-Null
 $oldPassword = $env:WHAT_PFX_PASSWORD
 $oldOpenSSLConfig = $env:OPENSSL_CONF
 try {
+    Write-Host 'WHAT build task: Testing installer layouts'
+    & "$ProjectRoot/tests/setup-layout-tests.ps1" -OutputDirectory "$logs/setup-layout-tests"
     $env:OPENSSL_CONF = 'NUL'
     $openssl = [string]$state.tools.OpenSSL
     $sdk = [string]$state.tools.Sdk
@@ -153,8 +155,6 @@ Never distribute _local/ or release.local.json.
     & "$PSScriptRoot/Prepare-CorrespondingSource.ps1" -Runtime $runtime -Destination $output
     # Compile the single-file wizard with Windows' built-in .NET Framework toolchain.
     $compiler = Find-Tool 'csc.exe' @("$env:WINDIR/Microsoft.NET/Framework64/v4.0.30319/csc.exe")
-    Write-Host 'WHAT build task: Testing installer layouts'
-    & "$ProjectRoot/tests/setup-layout-tests.ps1" -OutputDirectory "$stage/setup-layout-tests"
     $setupExe = Join-Path $output "WHAT-$($state.version)-Windows-$Architecture-Setup.exe"
     $setupMetadata = Join-Path $stage 'SetupAssemblyInfo.cs'
     $setupHashes = Join-Path $stage 'PayloadHashes.txt'

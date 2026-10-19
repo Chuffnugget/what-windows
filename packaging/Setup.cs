@@ -95,9 +95,6 @@ internal static class SetupProgram
         return Environment.GetEnvironmentVariable("PROCESSOR_ARCHITEW6432")
             ?? Environment.GetEnvironmentVariable("PROCESSOR_ARCHITECTURE") ?? "";
     }
-    internal static string ArchitectureIssue(string package, string native) {
-        return ArchitectureIssue(package, native, Environment.OSVersion.Version.Build);
-    }
     internal static string ArchitectureIssue(string package, string native, int windowsBuild) {
         if (package == "arm64" && !String.Equals(native, "ARM64", StringComparison.OrdinalIgnoreCase))
             return "This installer is for Windows on ARM. For an Intel or AMD PC, use the Windows-x64-Setup.exe download.";
@@ -229,8 +226,9 @@ internal sealed class SetupWindow : Form
     bool installing;
     string family = "", logPath = "", failure = "", expectedInstalledVersion = "none", installedLocation = "";
     bool allowDowngrade;
-    public SetupWindow() : this(SetupProgram.PackageArchitecture(), SetupProgram.NativeArchitecture()) { }
-    internal SetupWindow(string architecture, string nativeArchitecture) {
+    public SetupWindow() : this(SetupProgram.PackageArchitecture(), SetupProgram.NativeArchitecture(),
+        Environment.OSVersion.Version.Build) { }
+    internal SetupWindow(string architecture, string nativeArchitecture, int windowsBuild) {
         string architectureLabel = architecture == "arm64" ? "ARM64" : "x64";
         Text = "WHAT Setup - " + architectureLabel;
         SuspendLayout();
@@ -328,7 +326,7 @@ internal sealed class SetupWindow : Form
         launch.Visible = false;
         AcceptButton = install;
         CancelButton = close;
-        string compatibility = SetupProgram.ArchitectureIssue(architecture, nativeArchitecture);
+        string compatibility = SetupProgram.ArchitectureIssue(architecture, nativeArchitecture, windowsBuild);
         if (compatibility.Length > 0) {
             heading.Text = "This installer cannot run on this PC";
             status.Text = compatibility;

@@ -44,6 +44,8 @@ jobs:
         run: |
           ./tests/release-policy-tests.ps1
           ./tests/release-upload-tests.ps1
+      - name: Validate installer compatibility and layouts
+        run: ./tests/setup-layout-tests.ps1
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
