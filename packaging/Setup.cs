@@ -215,23 +215,29 @@ internal static class SetupTheme {
         frame.Controls.Add(actions, 0, 1);
         form.Controls.Add(frame);
 
-        bool resizing = false;
+        bool resizePending = false;
         Action resize = delegate {
-            if (resizing) return;
-            resizing = true;
-            try {
-                Size limit = Screen.FromControl(form).WorkingArea.Size;
-                if (form.MaximumSize.Width > 0) limit.Width = Math.Min(limit.Width, form.MaximumSize.Width);
-                if (form.MaximumSize.Height > 0) limit.Height = Math.Min(limit.Height, form.MaximumSize.Height);
-                form.MinimumSize = new Size(Math.Min(form.MinimumSize.Width, limit.Width), 0);
-                if (form.Width > limit.Width) form.Width = limit.Width;
-                frame.PerformLayout();
-                int height = content.GetPreferredSize(new Size(viewport.ClientSize.Width, 0)).Height
-                    + actions.Height + frame.Padding.Vertical + form.Height - form.ClientSize.Height;
-                // Set the outer size: SetClientSize can cache an unclamped height
-                // when Windows restricts the actual window to the monitor bounds.
-                form.Height = Math.Min(height, limit.Height);
-            } finally { resizing = false; }
+            if (resizePending || !form.IsHandleCreated || form.IsDisposed) return;
+            resizePending = true;
+            // Resize after the current layout finishes. Changing the parent size
+            // inside frame.Layout leaves its docked children at the old height.
+            form.BeginInvoke((Action)delegate {
+                try {
+                    if (form.IsDisposed) return;
+                    Size limit = Screen.FromControl(form).WorkingArea.Size;
+                    if (form.MaximumSize.Width > 0) limit.Width = Math.Min(limit.Width, form.MaximumSize.Width);
+                    if (form.MaximumSize.Height > 0) limit.Height = Math.Min(limit.Height, form.MaximumSize.Height);
+                    form.MinimumSize = new Size(Math.Min(form.MinimumSize.Width, limit.Width), 0);
+                    if (form.Width > limit.Width) form.Width = limit.Width;
+                    frame.PerformLayout();
+                    int height = content.GetPreferredSize(new Size(viewport.ClientSize.Width, 0)).Height
+                        + actions.Height + frame.Padding.Vertical + form.Height - form.ClientSize.Height;
+                    // Set the outer size: SetClientSize can cache an unclamped height
+                    // when Windows restricts the actual window to the monitor bounds.
+                    form.Height = Math.Min(height, limit.Height);
+                    form.PerformLayout();
+                } finally { resizePending = false; }
+            });
         };
         content.SizeChanged += delegate { resize(); };
         frame.Layout += delegate { resize(); };

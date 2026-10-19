@@ -66,11 +66,18 @@ internal static class SetupLayoutTests {
     }
 
     static void Check(Form form, string state, string output) {
-        form.PerformLayout();
+        // Observe the normal event-loop layout. Forcing PerformLayout here hid
+        // startup clipping by correcting the installer's stale frame geometry.
         Application.DoEvents();
         Rectangle client;
         if (!GetClientRect(form.Handle, out client) || client.Size != form.ClientSize)
             throw new Exception(state + ": cached client size differs from the actual window");
+        var frame = form.Controls[0];
+        if (frame.Bounds != client)
+            throw new Exception(state + ": installer frame does not fit the actual client area");
+        var padding = frame.Padding;
+        if (padding.Left != padding.Top || padding.Left != padding.Right || padding.Left != padding.Bottom)
+            throw new Exception(state + ": outer padding must be equal on all four sides");
         if (!windowLimit.IsEmpty && (form.Width > windowLimit.Width || form.Height > windowLimit.Height))
             throw new Exception(state + ": window exceeds the available display area");
         FlowLayoutPanel actions = null;
@@ -79,6 +86,9 @@ internal static class SetupLayoutTests {
         if (actions == null) throw new Exception(state + ": missing action buttons");
         var viewport = form.Controls[0].Controls[0] as Panel;
         if (viewport != null && viewport.AutoScroll) {
+            if (viewport.Left != padding.Left || viewport.Top != padding.Top
+                || client.Width - actions.Right != padding.Right)
+                throw new Exception(state + ": content and buttons do not respect the outer padding");
             if (viewport.Bottom > actions.Top || viewport.Right > form.ClientSize.Width)
                 throw new Exception(state + ": scrollable content overlaps the action buttons");
             if (viewport.Controls[0].Height > viewport.ClientSize.Height && !viewport.VerticalScroll.Visible)
@@ -237,7 +247,7 @@ internal static class SetupLayoutTests {
     }
 
     static void CheckLayouts(string output) {
-        foreach (float scale in new[] { 1f, 1.25f, 1.5f, 2f }) {
+        foreach (float scale in new[] { 1f, 1.25f, 1.5f, 1.75f, 2f }) {
             CheckPrompts(scale, output);
             using (var mismatch = new SetupWindow("arm64", "AMD64", Windows11Build)) {
                 ShowScaled(mismatch, scale);
