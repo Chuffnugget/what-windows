@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 $script:ProjectRoot = Split-Path $PSScriptRoot -Parent
 function Find-Tool([string]$Name, [string[]]$Candidates) {
     foreach ($candidate in $Candidates) { if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Leaf)) { return (Resolve-Path -LiteralPath $candidate).Path } }
-    $command = Get-Command $Name -ErrorAction SilentlyContinue
+    $command = Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($command) { return $command.Source }
     throw "Cannot find $Name. See docs/RELEASE.md for prerequisites or set its path in release.local.json."
 }
@@ -148,7 +148,8 @@ function Get-ReleaseTools($Config, [ValidateSet('x64', 'arm64')][string]$Archite
     return @{ Architecture='x64'; Qmake=$qmake; HostQt=$qt; Qt=$qt; Compiler=$compiler; CompilerVersion=$compilerVersion; CMake=$cmake; Ninja=$ninja; OpenSSLRoot=$opensslRoot; OpenSSL=$openssl; VcVars=$vcvars; Crt=$crt[0].FullName; Sdk=$sdk }
 }
 function Invoke-Checked([string]$Executable, [string[]]$Arguments) {
-    $command = Get-Command -Name $Executable -CommandType Application -ErrorAction Stop
+    # Windows and Git may both provide the tool. Invoke only the first PATH match.
+    $command = Get-Command -Name $Executable -CommandType Application -ErrorAction Stop | Select-Object -First 1
     $previousPreference = $ErrorActionPreference
     try {
         # Windows PowerShell treats redirected native stderr as ErrorRecord objects,

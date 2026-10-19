@@ -4,6 +4,29 @@
 <h1 align="center">WHAT</h1>
 <p align="center"><strong>Windows Home Assistant Toolkit</strong></p>
 
+<p align="center">
+  <a href="https://github.com/Chuffnugget/what-windows/releases">
+    <img src="https://img.shields.io/github/downloads/Chuffnugget/what-windows/total?label=release%20downloads" alt="Release downloads">
+  </a>
+  <a href="https://github.com/Chuffnugget/what-windows/actions/workflows/windows-release.yml">
+    <img src="https://github.com/Chuffnugget/what-windows/actions/workflows/windows-release.yml/badge.svg?branch=main" alt="Windows build and release">
+  </a>
+  <a href="https://github.com/Chuffnugget/what-windows/releases">
+    <img src="https://img.shields.io/github/v/release/Chuffnugget/what-windows?include_prereleases" alt="Latest release, including betas">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-LGPL--3.0--or--later-blue.svg" alt="Licence: LGPL-3.0-or-later">
+  </a>
+</p>
+<p align="center">
+  <a href="https://www.paypal.me/chuffnugget">
+    <img src="https://img.shields.io/badge/PayPal.Me-chuffnugget-00457C?logo=paypal" alt="PayPal.Me">
+  </a>
+  <a href="https://coff.ee/chuffnugget">
+    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="40">
+  </a>
+</p>
+
 WHAT connects a Windows PC to Home Assistant. Choose the readings to share and
 the controls Home Assistant may use. It targets Windows 11 x64 and native ARM64.
 ARM64 support is awaiting hardware validation and has a smaller supported module

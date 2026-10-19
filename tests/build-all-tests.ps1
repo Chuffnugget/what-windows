@@ -81,6 +81,34 @@ try { Invoke-Checked "$fixture/missing.exe" @() }
 catch { $missingFailed = $true }
 if (!$missingFailed) { throw 'Missing build executable was accepted.' }
 Write-Host 'PASS: native stderr, exit code and missing executable checks.'
+
+# CI has both Windows and Git tools on PATH. Resolve one executable in PATH order.
+& {
+    $findSource = $commonAst.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Find-Tool' }, $false).Extent.Text
+    . ([scriptblock]::Create($findSource))
+    $firstDirectory = Join-Path $OutputDirectory 'first tools'
+    $secondDirectory = Join-Path $OutputDirectory 'second tools'
+    New-Item -ItemType Directory -Path $firstDirectory, $secondDirectory -Force | Out-Null
+    $toolName = 'what-path-fixture.exe'
+    foreach ($directory in @($firstDirectory, $secondDirectory)) {
+        Copy-Item -LiteralPath $env:ComSpec -Destination (Join-Path $directory $toolName)
+    }
+    $originalPath = $env:PATH
+    try {
+        $env:PATH = "$firstDirectory;$secondDirectory;$originalPath"
+        if (@(Get-Command $toolName -CommandType Application -All).Count -ne 2) { throw 'Expected two fixture executables on PATH.' }
+        $output = @(Invoke-Checked $toolName @('/d', '/c', 'echo selected-from-path'))
+        if ($output.Count -ne 1 -or $output[0] -ne 'selected-from-path') { throw 'Duplicate executable lookup failed.' }
+        $resolved = Find-Tool $toolName @()
+        if ($resolved -isnot [string] -or $resolved -ne (Join-Path $firstDirectory $toolName)) { throw 'Tool discovery did not return the first PATH executable.' }
+        $override = Join-Path $secondDirectory $toolName
+        if ((Find-Tool $toolName @($override)) -ne $override) { throw 'An explicit tool candidate must take priority over PATH.' }
+    } finally {
+        $env:PATH = $originalPath
+    }
+}
+Write-Host 'PASS: duplicate executable names on PATH and explicit tool priority.'
+
 # Dependency output must still be transcribed when tool discovery returns a value.
 $prepareAst = [Management.Automation.Language.Parser]::ParseFile("$root/scripts/Prepare-Arm64OpenSSL.ps1", [ref]$parseTokens, [ref]$parseErrors)
 $preparePipeline = $prepareAst.Find({ param($node) $node -is [Management.Automation.Language.PipelineAst] -and $node.Extent.Text.StartsWith('Invoke-Checked $env:ComSpec') }, $false).Extent.Text
