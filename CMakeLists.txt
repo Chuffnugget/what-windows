@@ -6,7 +6,7 @@ project(
 )
 # Leave empty for stable releases; use beta.1, beta.2, etc. for prereleases.
 #set(WHAT_PRERELEASE "")
-set(WHAT_PRERELEASE "beta.1")
+set(WHAT_PRERELEASE "beta.2")
 if(WHAT_PRERELEASE AND NOT WHAT_PRERELEASE MATCHES "^beta\\.[1-9][0-9]*$")
     message(FATAL_ERROR "WHAT_PRERELEASE must be empty or beta.N")
 endif()
