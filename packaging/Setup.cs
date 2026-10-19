@@ -196,6 +196,48 @@ internal static class SetupTheme {
         form.Font = CreateFont(FontBody, false);
     }
 
+    internal static void FitContent(Form form, TableLayoutPanel content, FlowLayoutPanel actions) {
+        // Keep actions outside the scrolling area when DPI or wrapped text makes
+        // the content taller than the screen. Padding belongs to the outer frame.
+        var frame = new TableLayoutPanel {
+            Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Padding = content.Padding
+        };
+        frame.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        frame.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        frame.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        var viewport = new Panel { Dock = DockStyle.Fill, AutoScroll = true, Margin = new Padding(0) };
+        content.Controls.Remove(actions);
+        form.Controls.Remove(content);
+        content.Padding = new Padding(0);
+        content.Margin = new Padding(0);
+        viewport.Controls.Add(content);
+        frame.Controls.Add(viewport, 0, 0);
+        frame.Controls.Add(actions, 0, 1);
+        form.Controls.Add(frame);
+
+        bool resizing = false;
+        Action resize = delegate {
+            if (resizing) return;
+            resizing = true;
+            try {
+                Size limit = Screen.FromControl(form).WorkingArea.Size;
+                if (form.MaximumSize.Width > 0) limit.Width = Math.Min(limit.Width, form.MaximumSize.Width);
+                if (form.MaximumSize.Height > 0) limit.Height = Math.Min(limit.Height, form.MaximumSize.Height);
+                form.MinimumSize = new Size(Math.Min(form.MinimumSize.Width, limit.Width), 0);
+                if (form.Width > limit.Width) form.Width = limit.Width;
+                frame.PerformLayout();
+                int height = content.GetPreferredSize(new Size(viewport.ClientSize.Width, 0)).Height
+                    + actions.Height + frame.Padding.Vertical + form.Height - form.ClientSize.Height;
+                // Set the outer size: SetClientSize can cache an unclamped height
+                // when Windows restricts the actual window to the monitor bounds.
+                form.Height = Math.Min(height, limit.Height);
+            } finally { resizing = false; }
+        };
+        content.SizeChanged += delegate { resize(); };
+        frame.Layout += delegate { resize(); };
+        form.Shown += delegate { resize(); };
+    }
+
     internal static void ConfigureButton(System.Windows.Forms.Button button, bool primary) {
         button.AutoSize = true;
         button.AutoSizeMode = AutoSizeMode.GrowAndShrink;
@@ -248,9 +290,6 @@ internal sealed class SetupWindow : Form
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         Controls.Add(layout);
-        // The details row appears after installation. Size from wrapped content
-        // so every state keeps its buttons and bottom padding inside the window.
-        layout.SizeChanged += delegate { ClientSize = new Size(ClientSize.Width, layout.Height); };
         var header = new TableLayoutPanel {
             AutoSize = true, Dock = DockStyle.Fill, ColumnCount = 2,
             Margin = new Padding(0, 0, 0, SetupTheme.SpaceXl)
@@ -335,6 +374,7 @@ internal sealed class SetupWindow : Form
             close.Text = "Close";
             AcceptButton = close;
         }
+        SetupTheme.FitContent(this, layout, actions);
         ResumeLayout(true);
         FormClosing += delegate(object sender, FormClosingEventArgs e) {
             if (installing) e.Cancel = true;
@@ -543,8 +583,6 @@ internal static class SetupMessage {
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         form.Controls.Add(layout);
-        // Include wrapped text, buttons and bottom padding at every display scale.
-        layout.SizeChanged += delegate { form.ClientSize = new Size(form.ClientSize.Width, layout.Height); };
         layout.Controls.Add(new Label {
             Text = title, ForeColor = SetupTheme.Ink,
             Font = SetupTheme.CreateFont(SetupTheme.FontHeading, true),
@@ -570,6 +608,7 @@ internal static class SetupMessage {
                 form.CancelButton = button;
             }
         }
+        SetupTheme.FitContent(form, layout, actions);
         form.ResumeLayout(true);
     }
 

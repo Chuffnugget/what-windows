@@ -4,11 +4,15 @@ using System.Drawing;
 using System.IO;
 using System.IO.Compression;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
 internal static class SetupLayoutTests {
     const int Windows11Build = 22621;
+    static Size windowLimit;
+    [DllImport("user32.dll")]
+    static extern bool GetClientRect(IntPtr window, out Rectangle rectangle);
 
     static void CheckCompatibility(string package, string native, int windowsBuild, bool allowed) {
         string issue = SetupProgram.ArchitectureIssue(package, native, windowsBuild);
@@ -64,10 +68,22 @@ internal static class SetupLayoutTests {
     static void Check(Form form, string state, string output) {
         form.PerformLayout();
         Application.DoEvents();
+        Rectangle client;
+        if (!GetClientRect(form.Handle, out client) || client.Size != form.ClientSize)
+            throw new Exception(state + ": cached client size differs from the actual window");
+        if (!windowLimit.IsEmpty && (form.Width > windowLimit.Width || form.Height > windowLimit.Height))
+            throw new Exception(state + ": window exceeds the available display area");
         FlowLayoutPanel actions = null;
         foreach (Control child in form.Controls[0].Controls)
             if (child is FlowLayoutPanel) actions = (FlowLayoutPanel)child;
         if (actions == null) throw new Exception(state + ": missing action buttons");
+        var viewport = form.Controls[0].Controls[0] as Panel;
+        if (viewport != null && viewport.AutoScroll) {
+            if (viewport.Bottom > actions.Top || viewport.Right > form.ClientSize.Width)
+                throw new Exception(state + ": scrollable content overlaps the action buttons");
+            if (viewport.Controls[0].Height > viewport.ClientSize.Height && !viewport.VerticalScroll.Visible)
+                throw new Exception(state + ": overflowing content cannot be scrolled");
+        }
         int actionHeight = 0;
         foreach (Control button in actions.Controls) {
             if (!button.Visible) continue;
@@ -77,12 +93,12 @@ internal static class SetupLayoutTests {
                     + ", font " + button.Font.Size + ", padding " + button.Padding);
             actionHeight = button.Height;
             var bounds = form.RectangleToClient(button.RectangleToScreen(button.ClientRectangle));
-            if (!form.ClientRectangle.Contains(bounds))
+            if (!client.Contains(bounds))
                 throw new Exception(state + ": clipped button " + button.Text + " at " + bounds);
         }
         int bottom = form.PointToClient(actions.PointToScreen(new Point(0, actions.Height))).Y;
-        if (Math.Abs(form.ClientSize.Height - bottom - form.Controls[0].Padding.Bottom) > 2)
-            throw new Exception(state + ": inconsistent bottom padding: " + (form.ClientSize.Height - bottom)
+        if (Math.Abs(client.Height - bottom - form.Controls[0].Padding.Bottom) > 2)
+            throw new Exception(state + ": inconsistent bottom padding: " + (client.Height - bottom)
                 + "; expected " + form.Controls[0].Padding.Bottom);
         using (var image = new Bitmap(form.Width, form.Height)) {
             form.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));
@@ -101,6 +117,7 @@ internal static class SetupLayoutTests {
             form.Scale(new SizeF(scale, scale));
             form.ResumeLayout(true);
         }
+        if (!windowLimit.IsEmpty) form.MaximumSize = windowLimit;
         form.Show();
     }
 
@@ -206,68 +223,77 @@ internal static class SetupLayoutTests {
                     throw new Exception("Installer PowerShell must preserve failure text and exit code without CLIXML.");
             }
             Console.WriteLine("PASS: architecture checks and plain-text PowerShell failures");
-            foreach (float scale in new[] { 1f, 1.25f, 1.5f, 2f }) {
-                CheckPrompts(scale, args[0]);
-                using (var mismatch = new SetupWindow("arm64", "AMD64", Windows11Build)) {
-                    ShowScaled(mismatch, scale);
-                    if (Field<Button>(mismatch, "install").Enabled || Field<Button>(mismatch, "install").Visible
-                        || mismatch.AcceptButton != Field<Button>(mismatch, "close")
-                        || !Field<Label>(mismatch, "status").Text.Contains("Windows-x64-Setup.exe"))
-                        throw new Exception("Wrong architecture must be blocked before installation.");
-                    Check(mismatch, "wrong-architecture-" + (int)(scale * 100), args[0]);
-                }
-                using (var unsupported = new SetupWindow("x64", "AMD64", 20348)) {
-                    ShowScaled(unsupported, scale);
-                    if (Field<Button>(unsupported, "install").Enabled || Field<Button>(unsupported, "install").Visible
-                        || unsupported.AcceptButton != Field<Button>(unsupported, "close")
-                        || !Field<Label>(unsupported, "status").Text.Contains("Windows 11"))
-                        throw new Exception("An unsupported Windows version must be blocked before installation.");
-                    Check(unsupported, "unsupported-windows-" + (int)(scale * 100), args[0]);
-                }
-                using (var form = new SetupWindow("x64", "AMD64", Windows11Build)) {
-                    ShowScaled(form, scale);
-                    if (!Field<Button>(form, "install").Enabled || !Field<Button>(form, "install").Visible
-                        || form.AcceptButton != Field<Button>(form, "install"))
-                        throw new Exception("A supported Windows version must offer installation.");
-                    string suffix = "-" + (int)(scale * 100);
-                    Check(form, "initial" + suffix, args[0]);
-                    form.PreviewBusy();
-                    Check(form, "busy" + suffix, args[0]);
-                    Field<Button>(form, "install").Enabled = true;
-                    Field<Button>(form, "close").Enabled = true;
-                    Field<Label>(form, "heading").Text = "WHAT is installed";
-                    Field<Label>(form, "status").Text = "Ready. You can open WHAT or close this installer.";
-                    var details = Field<TextBox>(form, "details");
-                    details.Text = "Installed location:\r\nC:\\Program Files\\WindowsApps\\WHAT.Desktop_0.0.1.9_x64__z2ppg34bp4p5w";
-                    details.Visible = true;
-                    Field<Button>(form, "launch").Visible = true;
-                    Field<Button>(form, "install").Visible = false;
-                    Field<Button>(form, "close").Text = "Close";
-                    Field<SetupProgress>(form, "progress").Animating = false;
-                    Field<SetupProgress>(form, "progress").Completed = true;
-                    Check(form, "complete" + suffix, args[0]);
-                    var progress = Field<SetupProgress>(form, "progress");
-                    using (var image = new Bitmap(progress.Width, progress.Height)) {
-                        progress.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));
-                        if (image.GetPixel(0, 0).ToArgb() != SetupTheme.Brand.ToArgb()
-                            || image.GetPixel(image.Width - 1, image.Height - 1).ToArgb() != SetupTheme.Brand.ToArgb())
-                            throw new Exception("Completed progress must fill its square track in the logo blue.");
-                    }
-                    Field<Label>(form, "heading").Text = "Installation did not complete";
-                    Field<Label>(form, "status").Text = "See the details below. You can retry after resolving the error.";
-                    Field<Button>(form, "launch").Visible = false;
-                    Field<Button>(form, "install").Visible = true;
-                    Field<Button>(form, "install").Text = "Retry";
-                    Field<Button>(form, "copy").Visible = true;
-                    Field<SetupProgress>(form, "progress").Visible = false;
-                    details.Text = "Windows installation failed.\r\nLog: C:\\Users\\Example\\AppData\\Local\\WHAT\\installer\\example\\install.log";
-                    Check(form, "error" + suffix, args[0]);
-                }
+            foreach (Size limit in new[] { Size.Empty, new Size(1024, 768) }) {
+                windowLimit = limit;
+                string output = Path.Combine(args[0], limit.IsEmpty ? "unrestricted" : "1024x768");
+                Directory.CreateDirectory(output);
+                CheckLayouts(output);
             }
             return 0;
         } catch (Exception error) {
             Console.Error.WriteLine(error.Message);
             return 1;
+        }
+    }
+
+    static void CheckLayouts(string output) {
+        foreach (float scale in new[] { 1f, 1.25f, 1.5f, 2f }) {
+            CheckPrompts(scale, output);
+            using (var mismatch = new SetupWindow("arm64", "AMD64", Windows11Build)) {
+                ShowScaled(mismatch, scale);
+                if (Field<Button>(mismatch, "install").Enabled || Field<Button>(mismatch, "install").Visible
+                    || mismatch.AcceptButton != Field<Button>(mismatch, "close")
+                    || !Field<Label>(mismatch, "status").Text.Contains("Windows-x64-Setup.exe"))
+                    throw new Exception("Wrong architecture must be blocked before installation.");
+                Check(mismatch, "wrong-architecture-" + (int)(scale * 100), output);
+            }
+            using (var unsupported = new SetupWindow("x64", "AMD64", 20348)) {
+                ShowScaled(unsupported, scale);
+                if (Field<Button>(unsupported, "install").Enabled || Field<Button>(unsupported, "install").Visible
+                    || unsupported.AcceptButton != Field<Button>(unsupported, "close")
+                    || !Field<Label>(unsupported, "status").Text.Contains("Windows 11"))
+                    throw new Exception("An unsupported Windows version must be blocked before installation.");
+                Check(unsupported, "unsupported-windows-" + (int)(scale * 100), output);
+            }
+            using (var form = new SetupWindow("x64", "AMD64", Windows11Build)) {
+                ShowScaled(form, scale);
+                if (!Field<Button>(form, "install").Enabled || !Field<Button>(form, "install").Visible
+                    || form.AcceptButton != Field<Button>(form, "install"))
+                    throw new Exception("A supported Windows version must offer installation.");
+                string suffix = "-" + (int)(scale * 100);
+                Check(form, "initial" + suffix, output);
+                form.PreviewBusy();
+                Check(form, "busy" + suffix, output);
+                Field<Button>(form, "install").Enabled = true;
+                Field<Button>(form, "close").Enabled = true;
+                Field<Label>(form, "heading").Text = "WHAT is installed";
+                Field<Label>(form, "status").Text = "Ready. You can open WHAT or close this installer.";
+                var details = Field<TextBox>(form, "details");
+                details.Text = "Installed location:\r\nC:\\Program Files\\WindowsApps\\WHAT.Desktop_0.0.1.9_x64__z2ppg34bp4p5w";
+                details.Visible = true;
+                Field<Button>(form, "launch").Visible = true;
+                Field<Button>(form, "install").Visible = false;
+                Field<Button>(form, "close").Text = "Close";
+                Field<SetupProgress>(form, "progress").Animating = false;
+                Field<SetupProgress>(form, "progress").Completed = true;
+                Check(form, "complete" + suffix, output);
+                var progress = Field<SetupProgress>(form, "progress");
+                using (var image = new Bitmap(progress.Width, progress.Height)) {
+                    progress.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));
+                    if (image.GetPixel(0, 0).ToArgb() != SetupTheme.Brand.ToArgb()
+                        || image.GetPixel(image.Width - 1, image.Height - 1).ToArgb() != SetupTheme.Brand.ToArgb())
+                        throw new Exception("Completed progress must fill its square track in the logo blue.");
+                }
+                Field<Label>(form, "heading").Text = "Installation did not complete";
+                Field<Label>(form, "status").Text = "See the details below. You can retry after resolving the error.";
+                Field<Button>(form, "launch").Visible = false;
+                Field<Button>(form, "install").Visible = true;
+                Field<Button>(form, "install").Text = "Retry";
+                Field<Button>(form, "copy").Visible = true;
+                Field<SetupProgress>(form, "progress").Visible = false;
+                details.Text = "Windows installation failed.\r\nLog: C:\\Users\\Example\\AppData\\Local\\WHAT\\installer\\example\\install.log";
+                Check(form, "error" + suffix, output);
+            }
         }
     }
 }
