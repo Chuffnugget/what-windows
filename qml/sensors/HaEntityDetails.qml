@@ -27,16 +27,52 @@ ColumnLayout {
             objectName: "haEntityCopy"
             Layout.fillWidth: true
             Layout.minimumWidth: 0
-            implicitHeight: Math.max(Theme.compactHeight, contentItem.implicitHeight + 12)
+            leftPadding: Theme.spaceM
+            rightPadding: leftPadding
+            topPadding: Theme.spaceS
+            bottomPadding: topPadding
+            implicitHeight: Math.max(Theme.compactHeight, entityContent.implicitHeight + topPadding + bottomPadding)
             property bool copied: false
-            text: (modelData.installation ? modelData.installation + " · " : "") + modelData.entity + (copied ? "   ✓ Copied" : "   Copy")
-            contentItem: Text {
-                text: entityLink.text
-                color: Theme.accent
-                font.family: "Consolas"
-                font.pixelSize: Theme.fontCaption
-                wrapMode: Text.WrapAnywhere
-                verticalAlignment: Text.AlignVCenter
+            text: (modelData.installation ? modelData.installation + " · " : "") + modelData.entity
+            Accessible.name: "Copy " + text
+            contentItem: Item {
+                id: entityContent
+
+                implicitHeight: Math.max(entityText.implicitHeight, copyLabel.implicitHeight)
+
+                Text {
+                    id: entityText
+
+                    objectName: "haEntityIdText"
+                    anchors.left: parent.left
+                    anchors.right: copyLabel.left
+                    anchors.rightMargin: Theme.spaceM
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: entityLink.text
+                    color: Theme.accent
+                    font.family: "Consolas"
+                    font.pixelSize: Theme.fontCaption
+                    wrapMode: Text.WrapAnywhere
+                }
+                TextMetrics {
+                    id: copiedMetrics
+
+                    font: copyLabel.font
+                    text: "✓ Copied"
+                }
+                Text {
+                    id: copyLabel
+
+                    objectName: "haEntityCopyLabel"
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    // Reserve the confirmation width so copying does not rewrap the ID.
+                    width: Math.ceil(copiedMetrics.advanceWidth)
+                    text: entityLink.copied ? "✓ Copied" : "Copy"
+                    color: Theme.accent
+                    font.pixelSize: Theme.fontCaption
+                    horizontalAlignment: Text.AlignRight
+                }
             }
             help: "Copy this actual Home Assistant entity ID, including any name changes made in Home Assistant."
             onClicked: {
@@ -53,7 +89,7 @@ ColumnLayout {
             }
             NumberAnimation {
                 id: feedback
-                target: entityLink.contentItem
+                target: copyLabel
                 property: "opacity"
                 from: 0.35
                 to: 1

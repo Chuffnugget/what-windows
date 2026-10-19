@@ -11508,7 +11508,9 @@ private slots:
                 required property var controller
                 width: 640; height: 180; visible: true
                 HaEntityDetails {
-                    anchors.fill: parent
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
                     controller: window.controller
                     row: ({ id: "fixture" })
                 }
@@ -11521,9 +11523,27 @@ private slots:
         emit local.server.entityLookupResult("fixture", {"sensor.my_actual_renamed_temperature"}, "");
         QTRY_VERIFY(visualItem(window->contentItem(), "haEntityCopy"));
         auto *copy = visualItem(window->contentItem(), "haEntityCopy");
+        auto *entityText = visualItem(copy, "haEntityIdText");
+        auto *copyLabel = visualItem(copy, "haEntityCopyLabel");
+        QVERIFY(entityText);
+        QVERIFY(copyLabel);
+        // The confirmation must keep its own right-hand space even when the ID wraps.
+        for (int width : {280, 1280}) {
+            window->setWidth(width);
+            QTRY_COMPARE(copy->width(), qreal(width));
+            QTRY_VERIFY(entityText->x() + entityText->width() < copyLabel->x());
+            QTRY_COMPARE(copyLabel->x() + copyLabel->width(), copyLabel->parentItem()->width());
+            QTRY_VERIFY(copy->height() >= entityText->implicitHeight()
+                + copy->property("topPadding").toReal() + copy->property("bottomPadding").toReal());
+        }
+        const qreal labelWidth = copyLabel->width();
+        const qreal labelX = copyLabel->x();
         QVERIFY(writeClipboardWithRetry([&] { QMetaObject::invokeMethod(copy, "clicked"); }));
         QCOMPARE(QApplication::clipboard()->text(), QString("sensor.my_actual_renamed_temperature"));
         QVERIFY(copy->property("copied").toBool());
+        QCOMPARE(copyLabel->property("text").toString(), QString::fromUtf8("✓ Copied"));
+        QCOMPARE(copyLabel->width(), labelWidth);
+        QCOMPARE(copyLabel->x(), labelX);
         QVERIFY(!local.copyHaEntity("sensor.not_in_the_reply"));
         window->hide();
     }
