@@ -65,7 +65,7 @@ HomeAssistantWeb::HomeAssistantWeb(QSettings &settings, const QString &directory
     if (!validMode(d->viewMode))
         d->viewMode = "windowed";
     d->presentationMode = d->viewMode;
-    d->zoom = qBound(50, settings.value("modules/haweb/scale", 100).toInt(), 200);
+    d->zoom = qBound(50, settings.value("modules/haweb/scale", WebOptions::defaultScale).toInt(), 200);
     d->options = WebOptions::merged(settings.value("modules/haweb/options").toMap());
     d->shortcut = settings.value("modules/haweb/hotkey", "Ctrl+Alt+H").toString();
     if (!validHotkey(d->shortcut))

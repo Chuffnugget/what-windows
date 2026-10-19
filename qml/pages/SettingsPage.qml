@@ -209,12 +209,32 @@ DragScrollView {
 
             query: settingsSearch.text
             objectName: "portableSection"
+            keywords: "executable location path folder exe"
             title: settingsScroll.portable ? "Portable Mode" : "Installation"
             detail: settingsScroll.portable ? "Limitations and installer" : "Installed and managed by Windows"
 
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Theme.spaceM
+
+                HintLabel {
+                    text: "Executable Location"
+                    Layout.fillWidth: true
+                }
+
+                TextArea {
+                    objectName: "installationExecutablePath"
+                    text: controller.executablePath
+                    Layout.fillWidth: true
+                    readOnly: true
+                    selectByMouse: true
+                    wrapMode: TextEdit.WrapAnywhere
+                    textFormat: TextEdit.PlainText
+                    color: Theme.ink
+                    padding: 0
+                    background: Item {}
+                    ToolTip.text: "The full path of this running copy of WHAT. Select the text to copy it."
+                }
 
                 HintLabel {
                     text: settingsScroll.portable
@@ -504,7 +524,7 @@ DragScrollView {
 
             query: settingsSearch.text
             title: "Appearance"
-            keywords: "theme colour color blue grey gray dark animation animate fade motion hover logo timing minimise minimize maximise maximize window lens refraction strength tidal ink mercury mist silk contour frost ember prism pour molten precision fresnel anamorphic twin meniscus"
+            keywords: "theme colour color blue grey gray dark animation animate motion hover logo timing minimise minimize maximise maximize window"
             detail: "Theme, animations and interface timing"
 
             ColumnLayout {
@@ -532,7 +552,7 @@ DragScrollView {
                 }
 
                 OptionCheckBox {
-                    ToolTip.text: "Animate WHAT pages, prompts, controls, panels and the logo. Turn this off to make their state changes immediate."
+                    ToolTip.text: "Animate WHAT pages, menus, helper text, controls, panels and the logo. Turn this off to make their state changes immediate."
                     objectName: "animationsToggle"
                     text: "Enable Animations"
                     checked: Theme.animationsEnabled
@@ -540,7 +560,7 @@ DragScrollView {
                 }
 
                 HintLabel {
-                    text: "Open and close effects, page transitions, logos, hover effects and expanding sections. Changes apply immediately and are remembered."
+                    text: "Page transitions, menus, helper text, logos, hover effects and expanding sections. Prompts and the main window open and close immediately. Changes apply immediately and are remembered."
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
                 }
@@ -554,44 +574,8 @@ DragScrollView {
                     onClicked: controller.setWindowAnimationsEnabled(checked)
                 }
 
-                RowLayout {
-                    enabled: Theme.animationsEnabled
-
-                    Label {
-                        text: "Open / Close Effect"
-                        color: Theme.ink
-                    }
-                    ChoiceBox {
-                        objectName: "transitionStyleSelector"
-                        readonly property var styles: settingsScroll.status.transitionStyles || []
-                        model: styles.map(style => style.label)
-                        currentIndex: styles.findIndex(style => style.id === Theme.transitionStyle)
-                        onActivated: controller.setTransitionStyle(styles[currentIndex].id)
-                        ToolTip.text: "Choose how WHAT's window, prompts, menus and tooltips open and close. Expanding sections, sensor rows and page changes keep their slide animations. Off disables only open/close effects. Separate colour/file dialogs, native tray menus and browser content keep their own rendering. Software rendering uses Standard."
-                    }
-                }
-
-                RowLayout {
-                    enabled: Theme.shaderTransitionEnabled
-
-                    Label {
-                        text: "Effect Strength"
-                        color: Theme.ink
-                    }
-                    NumberInput {
-                        objectName: "refractionStrengthInput"
-                        unit: "%"
-                        from: 0
-                        to: 150
-                        stepSize: 10
-                        value: Theme.refractionStrength
-                        onValueModified: controller.setRefractionStrength(value)
-                        ToolTip.text: "Refraction and rim brightness as a percentage. 100 uses the default strength. Higher values make the distortion more visible without slowing the animation. Zero keeps the reveal without distortion."
-                    }
-                }
-
                 ActionButton {
-                    ToolTip.text: "Adjust open and close effects, page transitions, controls, panels, logos and notification timings."
+                    ToolTip.text: "Adjust menu, helper text, page, control, panel, logo and notification timings."
                     text: "Animation Timings…"
                     onClicked: settingsScroll.timingRequested()
                 }
@@ -763,6 +747,7 @@ DragScrollView {
                     ToggleSwitch {
                         id: appControlPermission
                         objectName: "appControlPermission"
+                        checkedColor: Theme.warning
                         Layout.fillWidth: true
                         text: "Allow Home Assistant to Manage WHAT"
                         checked: settingsScroll.status.appControlEnabled

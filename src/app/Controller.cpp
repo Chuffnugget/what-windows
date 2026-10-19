@@ -703,6 +703,10 @@ QVariantMap Controller::uiInfo() {
     return cachedUiInfo;
 }
 
+QString Controller::executablePath() const {
+    return QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
+}
+
 QVariantMap Controller::info() const {
     QSet<QString> enabledSources;
     for (auto source : {"windows", "hwinfo", "icue", "coretemp", "nvidia", "beacn", "wallpaper", "custom"})
@@ -720,6 +724,8 @@ QVariantMap Controller::info() const {
 }
 
 QVariantMap Controller::buildInfo(int activeSelected) const {
+    // Keep the saved appearance of menus and helper text after removing the
+    // prompt/window effect controls. Those surfaces no longer use these values.
     const auto &motion = UiMotion::resolve(settings.value("ui/transition_style").toString());
     const auto filters = browserFilters();
     const auto now = QDateTime::currentDateTimeUtc();
@@ -805,7 +811,6 @@ QVariantMap Controller::buildInfo(int activeSelected) const {
         {"animationsEnabled", settings.value("ui/animations", true).toBool()},
         {"transitionStyle", motion.id},
         {"transitionMode", motion.mode},
-        {"transitionStyles", UiMotion::choices()},
         {"refractionStrength", qBound(0, settings.value("ui/refraction_strength", 100).toInt(), 150)},
         {"appControlEnabled", settings.value("controls/what", false).toBool()},
         {"diagnosticLogging", settings.value("diagnostics/logging", false).toBool()},
@@ -1708,8 +1713,6 @@ const QVariantMap defaultUiTimings{
     {"pages", 320},
     {"dialogEnter", 250},
     {"dialogExit", 180},
-    {"windowEnter", 400},
-    {"windowExit", 300},
     {"logo", 1500},
     {"logoPause", 180},
     {"toast", 3500}
@@ -1735,20 +1738,6 @@ void Controller::setWindowMode(const QString &mode) {
         return;
     settings.setValue("ui/window_mode", mode);
     scheduleSettingsFlush();
-}
-
-void Controller::setTransitionStyle(const QString &style) {
-    if (!UiMotion::find(style))
-        return;
-    settings.setValue("ui/transition_style", style);
-    scheduleSettingsFlush();
-    emit changed();
-}
-
-void Controller::setRefractionStrength(int percent) {
-    settings.setValue("ui/refraction_strength", qBound(0, percent, 150));
-    scheduleSettingsFlush();
-    emit changed();
 }
 
 QVariantMap Controller::uiTimings() const {

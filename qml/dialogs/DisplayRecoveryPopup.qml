@@ -8,9 +8,8 @@ Popup {
 
     required property var controller
 
-    property PopupMotion popupMotion: PopupMotion { popup: displayRecovery }
-    enter: popupMotion.enter
-    exit: popupMotion.exit
+    enter: null
+    exit: null
 
     parent: Overlay.overlay
     x: Math.max(16, (parent.width - width) / 2)

@@ -30,9 +30,8 @@ Dialog {
     padding: 20
     closePolicy: Popup.CloseOnEscape
     title: installationId ? "Edit Home Assistant Installation" : "Add Home Assistant Installation"
-    property PopupMotion popupMotion: PopupMotion { popup: editor }
-    enter: popupMotion.enter
-    exit: popupMotion.exit
+    enter: null
+    exit: null
     background: GlassSurface {}
     Overlay.modal: GlassBackdrop { sourceItem: editor.backdropSource }
 

@@ -257,6 +257,7 @@ ModuleCard {
             text: "Allow Lighting Control over Cloud Connections"
             checked: controller.dynamicLighting.cloud === true
             badgeText: "Cloud Home Assistant"
+            access: PermissionBadge.Cloud
             enabled: controller.dynamicLighting.control_enabled
             onToggled: allowed => controller.setDynamicLightingOption("cloud", allowed)
         }

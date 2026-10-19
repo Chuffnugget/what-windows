@@ -200,9 +200,10 @@ ColumnLayout {
                 unit: ""
             };
         if (row.kind === "number") {
-            // Whole numbers (RPM, MHz, bytes) show no decimals; others show up to two.
-            const rounded = Number(Number(row.value).toFixed(2));
-            const decimals = row.unit === "B" || Number.isInteger(rounded) ? 0
+            // Temperatures use one decimal. Other whole readings stay compact.
+            const temperature = ["C", "°C", "F", "°F", "K"].includes(row.unit);
+            const rounded = Number(Number(row.value).toFixed(temperature ? 1 : 2));
+            const decimals = temperature ? 1 : row.unit === "B" || Number.isInteger(rounded) ? 0
                 : Math.abs(rounded * 10 - Math.round(rounded * 10)) < 1e-9 ? 1 : 2;
             return {
                 value: rounded.toLocaleString(Qt.locale(), 'f', decimals),
@@ -577,7 +578,7 @@ ColumnLayout {
                             width: 40
                             compact: true
                             text: parent.modelData
-                            access: PermissionBadge.Readings
+                            access: parent.modelData === "LOCAL" ? PermissionBadge.Readings : PermissionBadge.Cloud
                             help: parent.modelData === "LOCAL"
                                 ? "Select readings to share with Home Assistant over local connections. This does not grant control permission."
                                 : "Select readings to share with Home Assistant over cloud connections. Module cloud permissions also apply. This does not grant control permission."
@@ -1104,6 +1105,8 @@ ColumnLayout {
                         OptionCheckBox {
                             required property int modelData
                             objectName: "sharing_" + modelData
+                            checkedColor: modelData === 2 ? Theme.warning
+                                : modelData === 1 ? Theme.permissionReading : Theme.accent
                             Layout.preferredWidth: 44
                             implicitHeight: 26
                             visible: !sensorRow.modelData.controlOnly

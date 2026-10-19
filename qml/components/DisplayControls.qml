@@ -71,9 +71,8 @@ ColumnLayout {
 
     Popup {
         id: manager
-        property PopupMotion popupMotion: PopupMotion { popup: manager }
-        enter: popupMotion.enter
-        exit: popupMotion.exit
+        enter: null
+        exit: null
 
         parent: Overlay.overlay
         anchors.centerIn: parent

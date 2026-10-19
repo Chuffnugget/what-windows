@@ -49,6 +49,7 @@ QVariantMap mainDefaults() {
 }
 
 void readStyle(QVariantMap &clean, const QVariantMap &row) {
+    clean["source"] = row["source"].toString().left(64);
     for (const auto *key : {"foreground", "background"})
         if (QColor(row[key].toString()).isValid())
             clean[key] = row[key];
@@ -115,15 +116,25 @@ QString SensorTrayManager::compact(const QVariantMap &reading) {
     return QString::number(std::round(number) == 0 ? 0 : std::round(number), 'f', 0);
 }
 
+QString SensorTrayManager::moduleName(const QString &source) {
+    static const QMap<QString, QString> names{{"windows", "Windows"}, {"hwinfo", "HWiNFO"},
+        {"icue", "iCUE"}, {"nvidia", "NVIDIA"}, {"beacn", "BEACN"},
+        {"coretemp", "Core Temp"}, {"wallpaper", "Wallpaper Engine"}, {"custom", "Custom"}};
+    return names.value(source, source);
+}
+
 QString SensorTrayManager::tooltip(const QVariantMap &reading) {
-    const auto title =
+    const auto source = moduleName(reading["source"].toString());
+    const auto title = (source.isEmpty() ? QString() : source + " / ") +
         (reading["group"].toString().isEmpty() ? QString() : reading["group"].toString() + " / ") +
         reading["name"].toString();
     if (!usable(reading))
         return title + "\nUnavailable";
     QString value;
-    if (reading["kind"] == "number")
-        value = QString::number(reading["value"].toDouble(), 'g', 15);
+    if (reading["kind"] == "number") {
+        const bool temperature = QStringList{"C", "°C", "F", "°F", "K"}.contains(reading["unit"].toString());
+        value = QString::number(reading["value"].toDouble(), temperature ? 'f' : 'g', temperature ? 1 : 15);
+    }
     else if (reading["kind"] == "binary")
         value = reading["value"].toBool() ? "On" : "Off";
     else
@@ -131,7 +142,7 @@ QString SensorTrayManager::tooltip(const QVariantMap &reading) {
     const auto symbol = unit(reading);
     if (!symbol.isEmpty())
         value += " " + symbol;
-    // Windows limits tray tips: keep the complete numeric reading before a long sensor path.
+    // Windows limits tray tips: keep the formatted reading before a long sensor path.
     return value + "\n" + title.left(qMax(0, 126 - int(value.size())));
 }
 
@@ -178,13 +189,6 @@ void SensorTrayManager::setReadings(const QVariantList &rows, bool complete) {
 namespace {
 QVariantList pickerRows(const QHash<QString, QVariantMap> &readings, const QString &query,
                        const QVariantMap &collapsed) {
-    const QMap<QString, QString> names{{"windows", "Windows"},
-                                     {"hwinfo", "HWiNFO"},
-                                     {"icue", "iCUE"},
-                                     {"nvidia", "NVIDIA"},
-                                     {"beacn", "BEACN"},
-                                     {"coretemp", "Core Temp"},
-                                     {"wallpaper", "Wallpaper Engine"}};
     const auto words = query.simplified().toLower().split(' ', Qt::SkipEmptyParts);
     QMap<QString, QMap<QString, QVariantList>> groups;
     for (const auto &row : readings) {
@@ -194,7 +198,7 @@ QVariantList pickerRows(const QHash<QString, QVariantMap> &readings, const QStri
             source = "Other";
         if (group.isEmpty())
             group = "General";
-        const auto label = names.value(source, source) + " / " + group + " / " + row["name"].toString();
+        const auto label = SensorTrayManager::moduleName(source) + " / " + group + " / " + row["name"].toString();
         const auto searchable = (source + " " + label).toLower();
         if (std::any_of(words.cbegin(), words.cend(),
                         [&](const QString &word) { return !searchable.contains(word); }))
@@ -217,7 +221,7 @@ QVariantList pickerRows(const QHash<QString, QVariantMap> &readings, const QStri
         result.append(QVariantMap{{"header", true},
                                  {"depth", 0},
                                  {"key", sourceKey},
-                                 {"name", names.value(source.key(), source.key())}});
+                                 {"name", SensorTrayManager::moduleName(source.key())}});
         if (words.isEmpty() && collapsed.value(sourceKey).toBool())
             continue;
         for (auto group = source.value().begin(); group != source.value().end(); ++group) {
@@ -291,6 +295,7 @@ void SensorTrayManager::setSensor(const QString &id, const QString &sensor) {
         return;
     auto primary = configuration[0].toMap();
     primary["sensor"] = sensor;
+    primary["source"] = readings[sensor]["source"];
     primary["image"] = "";
     configuration[0] = primary;
     save();
@@ -383,7 +388,9 @@ void SensorTrayManager::add(const QString &id) {
     for (auto item : configuration)
         if (item.toMap()["id"] == id)
             return;
-    configuration << defaults(id, readings[id]["name"].toString());
+    auto entry = defaults(id, readings[id]["name"].toString());
+    entry["source"] = readings[id]["source"];
+    configuration << entry;
     save();
 }
 
@@ -462,7 +469,7 @@ void SensorTrayManager::refresh() {
         const auto id = s["id"].toString();
         keep.insert(id);
         const auto sensor = s.value("sensor", id).toString();
-        auto row = readings.value(sensor, {{"name", s["name"]}, {"available", false}});
+        auto row = readings.value(sensor, {{"name", s["name"]}, {"source", s["source"]}, {"available", false}});
         auto text = sensor.isEmpty() ? QString() : compact(row),
              tip = sensor.isEmpty() ? mainToolTip : tooltip(row);
         QString preview;
@@ -504,6 +511,7 @@ void SensorTrayManager::refresh() {
                 icon->show();
         }
         next[id] = QVariantMap{{"text", text},
+                               {"module", sensor.isEmpty() ? QString() : moduleName(row["source"].toString())},
                                {"tooltip", tip},
                                {"preview", preview},
                                {"error", icon ? icon->error() : QString{}}};

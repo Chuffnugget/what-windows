@@ -92,6 +92,7 @@ public:
     static QVariantMap readImageFile(const QString &path);
     static QString compact(const QVariantMap &row);
     static QString tooltip(const QVariantMap &row);
+    static QString moduleName(const QString &source);
     static QImage render(const QString &text, const QVariantMap &style, int size);
 signals:
     void configurationChanged();

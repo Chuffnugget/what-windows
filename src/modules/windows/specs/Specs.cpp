@@ -59,12 +59,22 @@ void Controller::refreshSpecs() {
         });
         watcher->setFuture(QtConcurrent::run([output] {
             QString report = output;
+            report.replace("\r\n", "\n");
             try {
                 if (report.isEmpty())
                     report = nativeSpecifications() + "\n\nSome Windows inventory details were unavailable.";
+                const auto activation = "Windows activation: " + windowsActivationStatus();
+                const auto operatingSystem = report.indexOf("\nOperating system\n");
+                if (operatingSystem >= 0) {
+                    const auto end = report.indexOf("\n\n", operatingSystem + 1);
+                    report.insert(end >= 0 ? end : report.size(), "\n" + activation);
+                } else {
+                    report += "\n\nOperating system\n" + activation;
+                }
                 report += "\n\n" + graphicsSpecifications();
                 report += "\n\n" + displaySpecifications(Displays::query(true));
                 report += "\n\n" + firmwareSpecifications();
+                report += "\n\n" + inputSpecifications();
             } catch (const std::exception &) {
                 report += "\n\nFurther native hardware details unavailable.";
             }

@@ -1,8 +1,6 @@
 #pragma once
 
 #include <QString>
-#include <QVariantList>
-#include <QVariantMap>
 
 // Stable settings IDs and shader modes. Labels may change without changing a
 // saved choice; the shader numbers match the original window motion studies.
@@ -46,13 +44,4 @@ inline const Style &resolve(const QString &id) {
     return style ? *style : styles[0];
 }
 
-inline const QVariantList &choices() {
-    static const QVariantList result = [] {
-        QVariantList list;
-        for (const auto &style : styles)
-            list.append(QVariantMap{{"id", style.id}, {"label", style.label}});
-        return list;
-    }();
-    return result;
-}
 } // namespace UiMotion

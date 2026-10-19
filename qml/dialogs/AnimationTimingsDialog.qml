@@ -39,7 +39,7 @@ GlassDialog {
             spacing: Theme.spaceM
 
             HintLabel {
-                text: "Durations are in milliseconds and save automatically. Sections, prompts, menus and helper text blur as they close and sharpen as they open. Zero makes a transition immediate. Longer page jumps transition faster. Page Changes moves each page together with its title. The animation switch still takes priority."
+                text: "Durations are in milliseconds and save automatically. Sections, menus and helper text blur as they close and sharpen as they open. Prompts and the main window open and close immediately. Zero makes a transition immediate. Longer page jumps transition faster. Page Changes moves each page together with its title. The animation switch still takes priority."
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
             }
@@ -92,28 +92,14 @@ GlassDialog {
 
                     {
                         key: "dialogEnter",
-                        label: "Prompts and Menus Open",
+                        label: "Menus Open",
                         min: 0,
                         max: 2000
                     },
 
                     {
                         key: "dialogExit",
-                        label: "Prompts and Menus Close",
-                        min: 0,
-                        max: 2000
-                    },
-
-                    {
-                        key: "windowEnter",
-                        label: "Window Open",
-                        min: 0,
-                        max: 2000
-                    },
-
-                    {
-                        key: "windowExit",
-                        label: "Window Close",
+                        label: "Menus Close",
                         min: 0,
                         max: 2000
                     },

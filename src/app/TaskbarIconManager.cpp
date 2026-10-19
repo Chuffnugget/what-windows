@@ -117,6 +117,7 @@ TaskbarIconManager::TaskbarIconManager(const QString &file, bool testing, QObjec
             continue;
         auto clean = defaults(id, row["name"].toString().left(120));
         clean["sensor"] = row["sensor"].toString().left(512);
+        clean["source"] = row["source"].toString().left(64);
         if (row["image"].toString().size() <= 1024 * 1024)
             clean["image"] = row["image"];
         for (const auto *key : {"foreground", "background"})
@@ -167,6 +168,7 @@ void TaskbarIconManager::addSelected(const QStringList &sensors) {
         auto row =
             defaults(QUuid::createUuid().toString(QUuid::WithoutBraces), readings[sensor]["name"].toString());
         row["sensor"] = sensor;
+        row["source"] = readings[sensor]["source"];
         configuration << row;
     }
     save();
@@ -175,8 +177,19 @@ void TaskbarIconManager::addSelected(const QStringList &sensors) {
 void TaskbarIconManager::setSensor(const QString &id, const QString &sensor) {
     if (!readings.contains(sensor))
         return;
-    change(id, "image", "");
-    change(id, "sensor", sensor);
+    for (int i = 0; i < configuration.size(); ++i) {
+        auto entry = configuration[i].toMap();
+        if (entry["id"] != id)
+            continue;
+        entry["image"] = "";
+        entry["sensor"] = sensor;
+        entry["source"] = readings[sensor]["source"];
+        if (id != "main")
+            entry["name"] = readings[sensor]["name"];
+        configuration[i] = entry;
+        save();
+        return;
+    }
 }
 
 void TaskbarIconManager::change(const QString &id, const QString &key, const QVariant &value) {
@@ -303,7 +316,7 @@ void TaskbarIconManager::refresh() {
         const auto style = value.toMap();
         const auto id = style["id"].toString();
         const auto sensor = style["sensor"].toString();
-        const auto row = readings.value(sensor, {{"name", style["name"]}, {"available", false}});
+        const auto row = readings.value(sensor, {{"name", style["name"]}, {"source", style["source"]}, {"available", false}});
         const auto text = sensor.isEmpty() ? QString() : SensorTrayManager::compact(row);
         const auto tip = sensor.isEmpty() ? style["name"].toString() : SensorTrayManager::tooltip(row);
         keep.insert(id);
@@ -350,7 +363,8 @@ void TaskbarIconManager::refresh() {
             panel->setWindowTitle(style["name"].toString() + " - WHAT");
             panel->setToolTip(tip);
         }
-        next[id] = QVariantMap{{"text", text}, {"tooltip", tip}, {"preview", preview}, {"error", error}};
+        next[id] = QVariantMap{{"text", text}, {"tooltip", tip}, {"preview", preview}, {"error", error},
+            {"module", sensor.isEmpty() ? QString() : SensorTrayManager::moduleName(row["source"].toString())}};
     }
     for (const auto &id : panels.keys())
         if (!keep.contains(id))

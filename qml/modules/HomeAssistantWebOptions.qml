@@ -151,7 +151,7 @@ ColumnLayout {
                 to: 200
                 stepSize: 10
                 unit: "%"
-                value: options.draft.pipScale || 100
+                value: options.draft.pipScale || options.web.pipScale
                 ToolTip.text: "Zoom only the dashboard inside PiP, without resizing the window or changing other Web views. You can also use the PiP title bar's minus and plus buttons. Apply to save."
                 onValueModified: options.update("pipScale", value)
             }

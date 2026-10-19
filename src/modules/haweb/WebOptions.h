@@ -7,13 +7,14 @@
 // Shared by the live module and configuration import. Keep validation atomic so
 // an invalid address cannot partially change the browser's saved preferences.
 namespace WebOptions {
+inline constexpr int defaultScale = 80;
 inline QVariantMap defaults() {
     return {{"cloudUrl", ""},         {"fallback", false},         {"autoRecover", true},
             {"desktopDashboard", ""}, {"fullscreenDashboard", ""}, {"pipDashboard", ""},
             {"desktopMonitor", ""},   {"overlayMonitor", ""},      {"autoHideToolbar", false},
             {"pipSnap", true},        {"pipAspectRatio", "free"},  {"muted", false},
             {"keepAudio", false},     {"pipHotkey", "Ctrl+Alt+P"}, {"trayAction", "what"},
-            {"pipScale", 100}, {"pipWindowScale", 100}, {"sidebarWidth", 256}};
+            {"pipScale", defaultScale}, {"pipWindowScale", 100}, {"sidebarWidth", 256}};
 }
 
 inline bool validHotkey(const QString &text) {

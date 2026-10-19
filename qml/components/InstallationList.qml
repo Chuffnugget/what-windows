@@ -109,9 +109,8 @@ ColumnLayout {
         contentHeight: removalText.implicitHeight
         background: GlassSurface {}
         Overlay.modal: GlassBackdrop { sourceItem: list.backdropSource }
-        property PopupMotion popupMotion: PopupMotion { popup: removal }
-        enter: popupMotion.enter
-        exit: popupMotion.exit
+        enter: null
+        exit: null
         contentItem: Label {
             id: removalText
             width: removal.availableWidth

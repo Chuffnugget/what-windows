@@ -15,7 +15,8 @@ Row {
 
     PermissionBadge {
         text: "LOCAL"
-        access: badges.localAllowed ? PermissionBadge.Readings : PermissionBadge.Blocked
+        access: !badges.localAllowed ? PermissionBadge.Blocked
+            : badges.showRunAccess ? PermissionBadge.Controls : PermissionBadge.Readings
         help: badges.showRunAccess
             ? (badges.localAllowed ? "Home Assistant can trigger this saved command over local connections." : badges.runHelp)
             : (badges.localAllowed ? "This reading is selected for sharing over local connections."
@@ -23,7 +24,7 @@ Row {
     }
     PermissionBadge {
         text: "CLOUD"
-        access: badges.cloudAllowed ? PermissionBadge.Readings : PermissionBadge.Blocked
+        access: badges.cloudAllowed ? PermissionBadge.Cloud : PermissionBadge.Blocked
         help: badges.showRunAccess
             ? (badges.cloudAllowed ? "Home Assistant can trigger this saved command over cloud connections."
                                   : "Cloud execution is blocked. The command needs Home Assistant permission and both its own and its module's cloud permission.")

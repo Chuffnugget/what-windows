@@ -53,6 +53,7 @@ DragScrollView {
     readonly property bool apiActive: status.running
         && (status.connectionTls || "").split(" + ").some(part => part.indexOf("TLS") === 0)
     readonly property bool transportConnected: apiActive || mqttActive
+    readonly property bool pairingFirst: (status.clients || 0) === 0
     signal connectionRequested
     signal renewCertificateRequested
     signal portableRequested
@@ -361,7 +362,15 @@ DragScrollView {
             }
         }
 
+        Item {
+            id: pairingTop
+            Layout.fillWidth: true
+            visible: overviewScroll.pairingFirst
+            implicitHeight: pairingPanel.implicitHeight
+        }
+
         RowLayout {
+            objectName: "overviewModulesHeading"
             Layout.fillWidth: true
             Layout.topMargin: 6
 
@@ -519,6 +528,7 @@ DragScrollView {
         }
 
         RowLayout {
+            objectName: "overviewServiceControls"
             Layout.fillWidth: true
             Layout.topMargin: 4
 
@@ -534,9 +544,20 @@ DragScrollView {
             }
         }
 
+        Item {
+            id: pairingBottom
+            Layout.fillWidth: true
+            visible: !overviewScroll.pairingFirst
+            implicitHeight: pairingPanel.implicitHeight
+        }
+
         Rectangle {
             id: pairingPanel
 
+            // Move the existing panel so reconnecting keeps the chosen installation
+            // and any open pairing details, rather than creating another form.
+            parent: overviewScroll.pairingFirst ? pairingTop : pairingBottom
+            width: parent.width
             objectName: "overviewPairingPanel"
             property ExpansionBlur expansionBlur: ExpansionBlur {
                 target: pairingBody
@@ -548,7 +569,6 @@ DragScrollView {
                 targetItem: pairingPanel
                 expanded: pairingPanel.expanded
             }
-            Layout.fillWidth: true
             implicitHeight: pairingHeader.height + pairingReveal.height
             color: Theme.inset
 

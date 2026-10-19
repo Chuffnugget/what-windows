@@ -409,7 +409,7 @@ ColumnLayout {
                         id: iconHeader
                         objectName: "iconHeader_" + entry.key
                         width: parent.width
-                        height: 72
+                        height: Math.max(72, contentItem.implicitHeight + topPadding + bottomPadding)
                         padding: Theme.spaceM
                         hoverEnabled: true
                         Accessible.name: entry.modelData.name
@@ -460,10 +460,14 @@ ColumnLayout {
 
                             ColumnLayout {
                                 Layout.fillWidth: true
+                                Layout.minimumWidth: 0
                                 spacing: 3
 
                                 Label {
-                                    text: entry.modelData.name + (entry.modelData.id === "main"
+                                    objectName: "iconTitle_" + entry.key
+                                    text: entry.modelData.name
+                                        + (entry.reading.module ? " · " + entry.reading.module : "")
+                                        + (entry.modelData.id === "main"
                                         ? ""
                                         : entry.modelData.appIcon
                                         ? " · App Icon"
@@ -471,18 +475,28 @@ ColumnLayout {
                                     color: Theme.ink
                                     font.weight: Font.DemiBold
                                     Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    textFormat: Text.PlainText
+                                    maximumLineCount: 1
                                     elide: Text.ElideRight
                                 }
 
                                 Label {
-                                    text: entry.reading.tooltip || "Unavailable"
+                                    objectName: "iconDetail_" + entry.key
+                                    // Native tray tooltips contain a newline. Keep this list
+                                    // summary on one line so it cannot paint under Remove.
+                                    text: (entry.reading.tooltip || "Unavailable").replace(/[\r\n]+/g, " · ")
                                     color: Theme.muted
                                     Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    textFormat: Text.PlainText
+                                    maximumLineCount: 1
                                     elide: Text.ElideRight
                                 }
                             }
 
                             ActionButton {
+                                objectName: "removeIcon_" + entry.key
                                 ToolTip.text: "Remove this extra icon from Windows and WHAT. The sensor and its Home Assistant sharing are kept."
                                 visible: entry.modelData.id !== "main"
                                 text: "Remove"

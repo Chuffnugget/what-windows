@@ -165,7 +165,7 @@ ApplicationWindow {
     flags: Qt.Window | Qt.FramelessWindowHint | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint | Qt.WindowCloseButtonHint
 
     title: "WHAT · Windows Home Assistant Toolkit"
-    color: "transparent"
+    color: Theme.canvas
     font.family: "Segoe UI"
     font.pixelSize: Theme.fontBody
     palette.text: ink
@@ -183,9 +183,6 @@ ApplicationWindow {
     // state so minimising or hiding preserves the last usable window mode.
     onVisibilityChanged: function (visibility) {
         Qt.callLater(rememberWindowMode);
-        if (visible && visibility !== Window.Minimized && previousWindowVisibility === Window.Hidden)
-            revealWindow();
-        previousWindowVisibility = visibility;
     }
 
     function rememberWindowMode() {
@@ -199,49 +196,12 @@ ApplicationWindow {
 
     onClosing: function (event) {
         event.accepted = false;
-        animateHide();
+        hide();
     }
 
-    readonly property bool windowAnimationsEnabled: window.animationsEnabled && status.windowAnimationsEnabled !== false
-    property string pendingWindowAction: ""
-    property real windowReveal: 1
-    property int previousWindowVisibility: Window.Hidden
     signal windowQuitReady
 
-    function cancelWindowTransition() {
-        windowMotion.stop();
-        pendingWindowAction = "";
-        opacity = 1;
-        windowReveal = 1;
-    }
-
-    function animateHide() {
-        transitionWindow("hide");
-    }
-
-    function animateQuit() {
-        transitionWindow("quit");
-    }
-
-    function transitionWindow(action) {
-        if (pendingWindowAction === "quit")
-            return;
-        cancelWindowTransition();
-        // Minimise/maximise retain the native Windows transition and taskbar
-        // behaviour. The selected effect handles showing, hiding to the tray and quitting.
-        if ((action === "hide" || action === "quit") && visible
-                && visibility !== Window.Minimized && Theme.shaderTransitionEnabled
-                && uiTimings.windowExit > 0) {
-            pendingWindowAction = action;
-            windowMotion.to = 0;
-            windowMotion.duration = uiTimings.windowExit;
-            windowMotion.start();
-            return;
-        }
-        finishWindowAction(action);
-    }
-
-    function finishWindowAction(action) {
+    function performWindowAction(action) {
         if (action === "hide")
             hide();
         else if (action === "minimise")
@@ -254,72 +214,8 @@ ApplicationWindow {
             windowQuitReady();
     }
 
-    function revealWindow() {
-        cancelWindowTransition();
-        if (Theme.shaderTransitionEnabled && uiTimings.windowEnter > 0) {
-            windowReveal = 0;
-            windowMotion.to = 1;
-            windowMotion.duration = uiTimings.windowEnter;
-            windowMotion.start();
-        }
-    }
-
-    NumberAnimation {
-        id: windowMotion
-
-        target: window
-        property: "windowReveal"
-        easing.type: Easing.InOutCubic
-        onFinished: {
-            const action = window.pendingWindowAction;
-            window.pendingWindowAction = "";
-            if (action)
-                window.finishWindowAction(action);
-        }
-    }
-
-    OpenCloseLayer {
-        objectName: "windowRefraction"
-        target: window.contentItem.parent
-        progress: window.windowReveal
-        allowed: windowMotion.running
-    }
-
-    // ApplicationWindow owns its header and overlay outside the content control.
-    // Share effect coordinates so one reveal crosses the whole window.
-    OpenCloseLayer {
-        target: titleBar
-        viewportSize: Qt.size(window.width, window.height)
-        progress: window.windowReveal
-        allowed: windowMotion.running
-    }
-
-    OpenCloseLayer {
-        target: window.Overlay.overlay
-        viewportSize: Qt.size(window.width, window.height)
-        progress: window.windowReveal
-        allowed: windowMotion.running
-    }
-
-    // Capture the background too, leaving the closed part transparent.
-    Rectangle {
-        objectName: "windowBackground"
-        parent: window.contentItem.parent
-        anchors.fill: parent
-        z: -1000
-        color: Theme.canvas
-    }
-
-    Connections {
-        target: Theme
-        function onShaderTransitionEnabledChanged() {
-            if (!Theme.shaderTransitionEnabled && windowMotion.running)
-                windowMotion.complete();
-        }
-    }
-
     function toggleMaximised() {
-        transitionWindow((visibility === Window.Maximized || visibility === Window.FullScreen)
+        performWindowAction((visibility === Window.Maximized || visibility === Window.FullScreen)
             ? "restore"
             : "maximise");
     }
@@ -388,7 +284,7 @@ ApplicationWindow {
                 objectName: "windowMinimise"
                 glyph: "minimise"
                 Accessible.name: "Minimise"
-                onClicked: window.transitionWindow("minimise")
+                onClicked: window.performWindowAction("minimise")
             }
 
             TitleButton {
@@ -565,8 +461,8 @@ ApplicationWindow {
         id: quitDialog
 
         backdropSource: applicationSurface
-        onQuitRequested: window.animateQuit()
-        onHideRequested: window.animateHide()
+        onQuitRequested: window.windowQuitReady()
+        onHideRequested: window.hide()
     }
 
     EntityCleanupDialog {
@@ -594,7 +490,6 @@ ApplicationWindow {
         pageActive: window.previewPage === 9 && window.visible
             && window.visibility !== Window.Minimized && !mainPageStack.moving
         blocked: window.webModalOpen
-        transitioning: windowMotion.running
         onSettingsRequested: {
             window.openModule("haweb");
             if (!window.visible || window.visibility === Window.Minimized)

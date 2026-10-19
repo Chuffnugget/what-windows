@@ -198,14 +198,11 @@ and warning colours stay the same. Changes apply immediately and are saved in
 
 ### UI timing
 
-Choose **Settings > Appearance > Open / Close Effect** for the 18 window motion
-effects, Standard or Off. Refraction Lens is the default. The selected effect
-applies to WHAT's window, prompts, menus, tooltips and notifications. Sections
-and sensor rows keep their slide animations. Each page slides vertically together with its title
-and warning banners. **Effect Strength** adjusts distortion and rim
-brightness. These choices are saved in `settings.yaml` and configuration exports.
+WHAT's main window and prompts open and close immediately. Prompts keep their
+glass backgrounds. Sections and sensor rows slide open and closed, and each
+page slides vertically together with its title and warning banners.
 
-The contents of sections, sensor rows, prompts, menus and helper text soften as
+The contents of sections, sensor rows, menus and helper text soften as
 they close and become sharp as they open. Outer backgrounds, borders and sensor
 selection strips stay sharp. Blur follows the existing animation timing and
 switches off at rest. It requires hardware rendering.
@@ -215,17 +212,15 @@ rows use Expand / Collapse and List Movement. Page Changes controls the whole
 page, including its title. Tooltips use **Helper Text Open / Close**, which defaults
 to 350 ms. Higher values make the animation slower; the 600 ms hover delay is
 separate. **Reset Defaults** resets every timing, including custom values, and
-returns helper text to 350 ms. Window Open and Window Close
-control the selected effect when showing WHAT, hiding it to the tray or quitting.
+returns helper text to 350 ms. **Menus Open** and **Menus Close** adjust menu timing.
 Minimising and maximising use Windows' own animations. Separate colour and file
 dialogs, native tray menus and embedded browser content keep their own rendering.
 Software rendering uses Standard transitions because it cannot run shader effects.
 
 Zero makes a transition immediate. Disable **Enable animations** to turn off
-motion throughout WHAT. **Off** in the effect list disables open/close effects
-without changing page or section slides. Effects run only during a transition, with no shader
+motion throughout WHAT. Effects run only during a transition, with no shader
 layer kept at rest. Sensor collection intervals and network timeouts are
-separate from these visual durations. Prompts and menus open in 250 ms and close
+separate from these visual durations. Menus open in 250 ms and close
 in 180 ms by default. Sections expand and collapse in 250 ms. Custom timings
 remain unchanged.
 

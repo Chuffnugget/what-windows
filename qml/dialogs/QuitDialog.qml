@@ -19,7 +19,7 @@ GlassDialog {
     property string requestedAction: ""
     onAboutToShow: requestedAction = ""
     onOpened: confirmQuit.forceActiveFocus()
-    // Finish the prompt's exit animation before hiding or shutting down.
+    // Close the modal before hiding the window or shutting down.
     onClosed: {
         if (requestedAction === "quit")
             quitDialog.quitRequested();

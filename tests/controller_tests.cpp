@@ -22,6 +22,7 @@
 #include "modules/beacn/BeacnBackend.h"
 #include "modules/windows/specs/SpecsDisplays.h"
 #include "modules/windows/specs/SpecsIssues.h"
+#include "modules/windows/specs/SpecsHardware.h"
 #include "app/DiagnosticReport.h"
 #include "app/StartupNotice.h"
 #include "app/TrayUi.h"
@@ -638,6 +639,8 @@ private slots:
             QVERIFY(!web.loading());
             QVERIFY(!QDir(dir.filePath("home-assistant-web")).exists());
             QCOMPARE(web.hotkey(), QString("Ctrl+Alt+H"));
+            QCOMPARE(web.scale(), 80);
+            QCOMPARE(web.pipScale(), 80);
             QVERIFY(!web.configure("file:///C:/secret.txt", "windowed", 100, "Ctrl+Alt+H"));
             QVERIFY(!web.configure("https://user:password@example.com", "windowed", 100, "Ctrl+Alt+H"));
             QVERIFY(!web.configure("https://example.com", "windowed", 100, "H"));
@@ -4573,8 +4576,7 @@ private slots:
             QVERIFY(!engine.rootObjects().isEmpty());
             auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
             QVERIFY(window);
-            auto *background = window->findChild<QObject *>("windowBackground");
-            QVERIFY(background);
+            auto *background = window;
             window->show();
             QVERIFY(QTest::qWaitForWindowExposed(window));
             window->setProperty("previewPage", 2);
@@ -4685,7 +4687,7 @@ private slots:
         QCOMPARE(local.uiTimings()["logo"].toInt(), 250);
         local.setUiTiming("panels", 999999);
         QCOMPARE(local.uiTimings()["panels"].toInt(), 2000);
-        for (const auto &key : {"pages", "dialogEnter", "dialogExit", "windowEnter", "windowExit"}) {
+        for (const auto &key : {"pages", "dialogEnter", "dialogExit"}) {
             local.setUiTiming(key, 450);
             QCOMPARE(local.uiTimings()[key].toInt(), 450);
             QCOMPARE(persisted.value(QString("ui/timing/") + key).toInt(), 450);
@@ -4912,7 +4914,7 @@ private slots:
         QTemporaryDir dir;
         Controller local(dir.path(), true);
         local.stopService();
-        local.setTransitionStyle("standard");
+        local.settings.setValue("ui/transition_style", "standard");
         local.setUiTiming("pages", 800);
         UpdateManager updater(dir.path(), true);
         QQmlApplicationEngine engine;
@@ -5192,44 +5194,23 @@ private slots:
         QCOMPARE(warnings.count(), 0);
     }
 
-    void refractionSettingsAndTransitions() {
+    void promptsAndWindowOpenImmediately() {
         QTemporaryDir dir;
         Controller local(dir.path(), true);
         local.stopService();
+        // Existing preferences still apply to menus/tooltips, but must never
+        // restore effects on the main window or any prompt.
+        local.settings.setValue("ui/transition_style", "refraction");
+        local.settings.setValue("ui/refraction_strength", 150);
+        local.settings.setValue("ui/timing/windowEnter", 2000);
+        local.settings.setValue("ui/timing/windowExit", 2000);
+        local.setUiTiming("dialogEnter", 2000);
+        local.setUiTiming("dialogExit", 2000);
         QCOMPARE(local.info()["transitionStyle"].toString(), QString("refraction"));
-        QCOMPARE(local.info()["transitionStyles"].toList().size(), 20);
-        for (const auto &style : UiMotion::styles) {
-            local.setTransitionStyle(style.id);
-            QCOMPARE(local.info()["transitionStyle"].toString(), QString(style.id));
-            QCOMPARE(local.info()["transitionMode"].toInt(), style.mode);
-            local.settings.sync();
-            QSettings saved(local.settings.fileName(), SettingsStore::format());
-            QCOMPARE(saved.value("ui/transition_style").toString(), QString(style.id));
-            const QJsonObject values{{"ui/transition_style", style.id}};
-            QCOMPARE(ConfigurationFile::decode(ConfigurationFile::encode(values)).values, values);
-        }
-        local.setTransitionStyle("standard");
-        local.setTransitionStyle("invalid");
-        QCOMPARE(local.info()["transitionStyle"].toString(), QString("standard"));
-        local.setTransitionStyle("refraction");
-        local.setRefractionStrength(999);
         QCOMPARE(local.info()["refractionStrength"].toInt(), 150);
-        local.setRefractionStrength(-5);
-        QCOMPARE(local.info()["refractionStrength"].toInt(), 0);
-        local.setRefractionStrength(80);
-        local.settings.sync();
-        QSettings persisted(local.settings.fileName(), SettingsStore::format());
-        QCOMPARE(persisted.value("ui/transition_style").toString(), QString("refraction"));
-        QCOMPARE(persisted.value("ui/refraction_strength").toInt(), 80);
-        QCOMPARE(ConfigurationFile::snapshot(local.settings)["ui/transition_style"].toString(), QString("refraction"));
-        QCOMPARE(ConfigurationFile::snapshot(local.settings)["ui/refraction_strength"].toInt(), 80);
-        const QJsonObject values{{"ui/transition_style", "refraction"}, {"ui/refraction_strength", 80},
-                                 {"ui/timing/windowEnter", 700}, {"ui/timing/windowExit", 500}};
-        const auto decoded = ConfigurationFile::decode(ConfigurationFile::encode(values));
-        QVERIFY(decoded.error.isEmpty());
-        QCOMPARE(decoded.values, values);
-        for (const auto &key : {"windowEnter", "windowExit", "dialogEnter", "dialogExit", "pages"})
-            local.setUiTiming(key, 700);
+        QVERIFY(!local.uiTimings().contains("windowEnter"));
+        QVERIFY(!local.uiTimings().contains("windowExit"));
+
         UpdateManager updater(dir.path(), true);
         QQmlApplicationEngine engine;
         QSignalSpy warnings(&engine, &QQmlEngine::warnings);
@@ -5241,139 +5222,54 @@ private slots:
         QVERIFY(window);
         window->show();
         QVERIFY(QTest::qWaitForWindowExposed(window));
-        auto *windowLens = window->findChild<QObject *>("windowRefraction");
-        QVERIFY(windowLens);
-        QTRY_VERIFY(windowLens->property("active").toBool());
-        QTRY_VERIFY(!windowLens->property("active").toBool());
-        QCOMPARE(window->property("windowReveal").toDouble(), 1.0);
-        auto *windowSurface = windowLens->property("target").value<QQuickItem *>();
-        QVERIFY(windowSurface);
-        QVERIFY(!QQmlProperty::read(windowSurface, "layer.enabled").toBool());
+        QCOMPARE(window->opacity(), 1.0);
+        QVERIFY(!window->findChild<QObject *>("windowRefraction"));
+        QVERIFY(!window->findChild<QObject *>("transitionStyleSelector"));
+        QVERIFY(!window->findChild<QObject *>("refractionStrengthInput"));
+        QVERIFY(!window->findChild<QObject *>("timing-windowEnter"));
+        QVERIFY(!window->findChild<QObject *>("timing-windowExit"));
+
+        // Also cover dialogs that do not inherit GlassDialog, such as the
+        // installation editor, display manager and custom sensor library.
+        int prompts = 0;
+        for (auto *object : window->findChildren<QObject *>()) {
+            if (!object->inherits("QQuickPopup")
+                || (object->metaObject()->indexOfProperty("standardButtons") < 0
+                    && !object->property("modal").toBool()))
+                continue;
+            ++prompts;
+            QVERIFY2(!object->property("enter").value<QObject *>(), object->metaObject()->className());
+            QVERIFY2(!object->property("exit").value<QObject *>(), object->metaObject()->className());
+            QVERIFY(!object->property("popupMotion").isValid());
+        }
+        QVERIFY(prompts >= 10);
         auto *dialog = window->findChild<QObject *>("uiTimingDialog");
         QVERIFY(dialog);
-        auto *motion = dialog->property("popupMotion").value<QObject *>();
-        QVERIFY(motion);
-        auto *lens = motion->property("lens").value<QObject *>();
-        QVERIFY(lens);
-        auto *background = motion->property("backgroundSnapshot").value<QObject *>();
-        QVERIFY(background);
-        QVERIFY(lens->property("maximumBlur").toDouble() > 0);
-        QVERIFY(QMetaObject::invokeMethod(dialog, "open"));
-        QTRY_VERIFY(lens->property("active").toBool());
-        QTRY_VERIFY(background->property("sourceItem").value<QObject *>());
-        QTRY_VERIFY(motion->property("progress").toDouble() > 0.2);
-        if (!qEnvironmentVariableIsEmpty("WHAT_LENS_PREVIEW")) {
-            QTRY_VERIFY(motion->property("progress").toDouble() > 0.6);
-            QVERIFY(window->grabWindow().save(qEnvironmentVariable("WHAT_LENS_PREVIEW") + ".prompt.png"));
+        for (int cycle = 0; cycle < 3; ++cycle) {
+            QVERIFY(QMetaObject::invokeMethod(dialog, "open"));
+            QCOMPARE(dialog->property("opened").toBool(), true);
+            QCOMPARE(dialog->property("opacity").toDouble(), 1.0);
+            QCOMPARE(dialog->property("scale").toDouble(), 1.0);
+            QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
+            QCOMPARE(dialog->property("visible").toBool(), false);
         }
-        const auto beforeClose = motion->property("progress").toDouble();
-        QVERIFY(beforeClose > 0 && beforeClose < 1);
-        QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
-        QCOMPARE(motion->property("progress").toDouble(), beforeClose);
-        // A software-rendered CI frame can take longer than 40 ms.
-        QTRY_VERIFY(motion->property("progress").toDouble() < beforeClose);
-        const auto beforeReopen = motion->property("progress").toDouble();
-        QVERIFY(QMetaObject::invokeMethod(dialog, "open"));
-        QCOMPARE(motion->property("progress").toDouble(), beforeReopen);
-        QTRY_VERIFY(dialog->property("opened").toBool());
-        QTRY_VERIFY(!lens->property("active").toBool());
-        auto *surface = lens->property("target").value<QQuickItem *>();
-        QVERIFY(!background->property("sourceItem").value<QObject *>());
-        QVERIFY(surface);
-        QVERIFY(!QQmlProperty::read(surface, "layer.enabled").toBool());
-        QVERIFY(QQmlProperty::read(surface, "layer.live").toBool());
-        QCOMPARE(dialog->property("opacity").toDouble(), 1.0);
-        QCOMPARE(dialog->property("scale").toDouble(), 1.0);
-        QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
-        QTRY_VERIFY(!dialog->property("visible").toBool());
 
-        auto *stack = window->findChild<QQuickItem *>("pageStack");
-        QVERIFY(stack);
-        window->setProperty("previewPage", 1);
-        QTRY_VERIFY(stack->property("moving").toBool());
-        window->setProperty("previewPage", 5);
-        window->setProperty("previewPage", 2);
-        QTRY_VERIFY(!stack->property("moving").toBool());
-        QCOMPARE(stack->property("shownIndex").toInt(), 2);
-        auto *container = stack->property("pageContainer").value<QQuickItem *>();
-        QVERIFY(container);
-        QVERIFY(!QQmlProperty::read(container, "layer.enabled").toBool());
-        for (int i = 0; i < container->childItems().size(); ++i)
-            QCOMPARE(container->childItems()[i]->isVisible(), i == 2);
-        window->setProperty("previewPage", 0);
-        QTRY_VERIFY(stack->property("moving").toBool());
-        local.setAnimationsEnabled(false);
-        QTRY_VERIFY(!stack->property("moving").toBool());
-        QCOMPARE(stack->property("shownIndex").toInt(), 0);
-        local.setAnimationsEnabled(true);
-        QTRY_VERIFY(window->property("animationsEnabled").toBool());
-        QVERIFY(QMetaObject::invokeMethod(window, "animateHide"));
-        QTRY_VERIFY(windowLens->property("active").toBool());
-        QTRY_VERIFY(window->property("windowReveal").toDouble() < 0.5);
-        const auto closing = window->grabWindow();
-        QVERIFY(!closing.isNull());
-        if (!qEnvironmentVariableIsEmpty("WHAT_LENS_PREVIEW"))
-            QVERIFY(closing.save(qEnvironmentVariable("WHAT_LENS_PREVIEW") + ".window.png"));
-        QCOMPARE(closing.pixelColor(0, 0).alpha(), 0);
-        QVERIFY(closing.pixelColor(closing.width() / 2, closing.height() / 2).alpha() > 0);
-        // Reopening during a hide cancels the pending close through the same
-        // deferred native activation path used by the tray and second launches.
-        restoreWhatWindow(window);
-        QTRY_VERIFY(window->property("pendingWindowAction").toString().isEmpty());
-        QTest::qWait(750);
-        QVERIFY(window->isVisible());
-        QCOMPARE(window->property("windowReveal").toDouble(), 1.0);
-        QVERIFY(!windowLens->property("active").toBool());
-        QVERIFY(QMetaObject::invokeMethod(window, "animateHide"));
-        QTRY_VERIFY(!window->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(window, "performWindowAction", Q_ARG(QVariant, "hide")));
+        QVERIFY(!window->isVisible());
         WindowFrame frame(reinterpret_cast<HWND>(window->winId()));
         frame.openRequested = [window] { restoreWhatWindow(window); };
-        restoreWhatWindow(window); // Tray single-click activation.
-        QTRY_VERIFY(windowLens->property("active").toBool());
-        QTRY_VERIFY(window->property("windowReveal").toDouble() > 0.05);
-        const auto firstProgress = window->property("windowReveal").toDouble();
+        restoreWhatWindow(window);
+        QTRY_VERIFY(window->isVisible());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
         QSignalSpy visibilityChanged(window, &QWindow::visibilityChanged);
-        restoreWhatWindow(window); // The following double-click activation.
+        restoreWhatWindow(window); // Tray double-click and a second launch.
         QVERIFY(notifyExistingWhatWindow(QCoreApplication::applicationPid()));
         QTest::qWait(40);
-        QVERIFY(windowLens->property("active").toBool());
-        QVERIFY(window->property("windowReveal").toDouble() >= firstProgress);
-        QVERIFY(window->property("windowReveal").toDouble() < 1.0);
-        QCOMPARE(visibilityChanged.count(), 0); // No hide/show to replay the lens.
-        QTRY_VERIFY(!windowLens->property("active").toBool());
-        auto *selector = window->findChild<QObject *>("transitionStyleSelector");
-        QVERIFY(selector);
-        QCOMPARE(selector->property("count").toInt(), 20);
-        selector->setProperty("currentIndex", 2);
-        QVERIFY(QMetaObject::invokeMethod(selector, "activated", Q_ARG(int, 2)));
-        QTRY_COMPARE(local.info()["transitionStyle"].toString(), QString("tidal"));
-        for (int i = 0; i < 20; ++i) {
-            local.setTransitionStyle(UiMotion::styles[i].id);
-            QTRY_COMPARE(selector->property("currentIndex").toInt(), i);
-        }
-        // Off applies to popup effects without disabling page/section motion.
-        QVERIFY(local.info()["animationsEnabled"].toBool());
-        QVERIFY(QMetaObject::invokeMethod(dialog, "open"));
-        QTRY_VERIFY(dialog->property("opened").toBool());
-        QVERIFY(!motion->property("running").toBool());
-        QVERIFY(!lens->property("active").toBool());
-        QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
-        QTRY_VERIFY(!dialog->property("visible").toBool());
-        local.setTransitionStyle("refraction");
-        QTRY_COMPARE(selector->property("currentIndex").toInt(), 0);
-        if (!qEnvironmentVariableIsEmpty("WHAT_MOTION_PREVIEW")) {
-            window->setProperty("previewPage", 2);
-            auto *appearance = visualItem(window->contentItem(), "AppearanceSectionToggle");
-            QVERIFY(appearance);
-            appearance->parentItem()->setProperty("expanded", true);
-            QTRY_VERIFY(!stack->property("moving").toBool());
-            QTest::qWait(300);
-            QVERIFY(window->grabWindow().save(qEnvironmentVariable("WHAT_MOTION_PREVIEW") + "/settings.png"));
-        }
+        QCOMPARE(visibilityChanged.count(), 0);
+        QCOMPARE(window->opacity(), 1.0);
         QSignalSpy quit(window, SIGNAL(windowQuitReady()));
-        QVERIFY(QMetaObject::invokeMethod(window, "animateQuit"));
-        local.setAnimationsEnabled(false);
-        QTRY_COMPARE(quit.count(), 1);
+        QVERIFY(QMetaObject::invokeMethod(window, "performWindowAction", Q_ARG(QVariant, "quit")));
+        QCOMPARE(quit.count(), 1);
         window->hide();
         QCOMPARE(warnings.count(), 0);
     }
@@ -5461,22 +5357,11 @@ private slots:
         window->show();
         QVERIFY(QTest::qWaitForWindowExposed(window));
 
-        local.setTransitionStyle("standard");
-        QTRY_COMPARE(window->property("status").toMap()["transitionStyle"].toString(), QString("standard"));
         auto *dialog = window->findChild<QObject *>("uiTimingDialog");
         QVERIFY(dialog);
-        auto *dialogContent = dialog->property("contentItem").value<QQuickItem *>();
-        QVERIFY(dialogContent && dialogContent->parentItem());
-        bool sawVisibleScale = false;
-        QObject scaleObserver;
-        // A slow renderer can finish and reset a popup between polling attempts.
-        // Observe its actual scale changes while it is still visible.
-        connect(dialogContent->parentItem(), &QQuickItem::scaleChanged, &scaleObserver, [&] {
-            const auto scale = dialog->property("scale").toDouble();
-            sawVisibleScale |= dialog->property("visible").toBool() && scale > 0.94 && scale < 1;
-        });
         QVERIFY(QMetaObject::invokeMethod(dialog, "open"));
-        QTRY_VERIFY(sawVisibleScale);
+        QCOMPARE(dialog->property("opened").toBool(), true);
+        QCOMPARE(dialog->property("scale").toDouble(), 1.0);
         // Modal overlays are visually parented to the window, not QObject children of it.
         std::function<QQuickItem *(QQuickItem *, const QString &)> findItem =
             [&](QQuickItem *item, const QString &name) -> QQuickItem * {
@@ -5507,10 +5392,8 @@ private slots:
         QTRY_VERIFY(reset->mapToItem(flick, QPointF(0, reset->height())).y() <= flick->height() + 1);
         if (!qEnvironmentVariableIsEmpty("WHAT_TIMING_PREVIEW"))
             QVERIFY(window->grabWindow().save(qEnvironmentVariable("WHAT_TIMING_PREVIEW") + ".scrolled.png"));
-        sawVisibleScale = false;
         QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
-        QTRY_VERIFY(sawVisibleScale);
-        QTRY_VERIFY(!dialog->property("visible").toBool());
+        QCOMPARE(dialog->property("visible").toBool(), false);
         local.setAnimationsEnabled(false);
         QVERIFY(QMetaObject::invokeMethod(dialog, "open"));
         QTRY_VERIFY(dialog->property("opened").toBool());
@@ -5523,7 +5406,7 @@ private slots:
     void windowTransitionsAndPreference() {
         QTemporaryDir dir;
         Controller local(dir.path(), true);
-        local.setTransitionStyle("standard");
+        local.settings.setValue("ui/transition_style", "standard");
         UpdateManager updater(dir.path(), true);
         QQmlApplicationEngine engine;
         engine.setInitialProperties(
@@ -5549,7 +5432,7 @@ private slots:
             QVERIFY(button->width() >= button->implicitWidth());
         }
 
-        QVERIFY(QMetaObject::invokeMethod(window, "transitionWindow", Q_ARG(QVariant, "minimise")));
+        QVERIFY(QMetaObject::invokeMethod(window, "performWindowAction", Q_ARG(QVariant, "minimise")));
         QVERIFY(!window->findChild<QQuickWindow *>("fluidWindowTransition"));
         QCOMPARE(window->opacity(), 1.0);
         QTRY_COMPARE(window->visibility(), QWindow::Minimized);
@@ -5561,7 +5444,7 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(window, "toggleMaximised"));
         QTRY_COMPARE(window->visibility(), QWindow::Windowed);
         QTRY_COMPARE(window->opacity(), 1.0);
-        QVERIFY(QMetaObject::invokeMethod(window, "animateHide"));
+        QVERIFY(QMetaObject::invokeMethod(window, "performWindowAction", Q_ARG(QVariant, "hide")));
         QVERIFY(!window->isVisible());
         local.setWindowAnimationsEnabled(false);
         QVERIFY(!window->isVisible());
@@ -5569,13 +5452,13 @@ private slots:
         QCOMPARE(local.settings.value("ui/window_animations").toBool(), false);
         window->show();
         QCOMPARE(window->opacity(), 1.0);
-        QVERIFY(QMetaObject::invokeMethod(window, "animateHide"));
+        QVERIFY(QMetaObject::invokeMethod(window, "performWindowAction", Q_ARG(QVariant, "hide")));
         QVERIFY(!window->isVisible());
         local.setWindowAnimationsEnabled(true);
         window->show();
         QTRY_COMPARE(window->opacity(), 1.0);
         QSignalSpy quit(window, SIGNAL(windowQuitReady()));
-        QVERIFY(QMetaObject::invokeMethod(window, "animateQuit"));
+        QVERIFY(QMetaObject::invokeMethod(window, "performWindowAction", Q_ARG(QVariant, "quit")));
         QTRY_COMPARE(quit.count(), 1);
         window->hide();
     }
@@ -5715,18 +5598,12 @@ private slots:
             const int previousFrames = snapshots;
             local.catalog["win_cancel_0"]["value"] = cycle + 1;
             local.publish();
-            if (cycle % 3 == 0)
-                QVERIFY(QMetaObject::invokeMethod(window, "revealWindow"));
             QVERIFY(QMetaObject::invokeMethod(window, "openQuitConfirmation"));
-            if (cycle % 2)
-                QTRY_VERIFY(dialog->property("opened").toBool());
-            else
-                QTest::qWait(40); // Cancel with both the window and prompt still moving.
+            QCOMPARE(dialog->property("opened").toBool(), true);
             QVERIFY(QMetaObject::invokeMethod(keepRunning, "clicked"));
             QTRY_VERIFY(!dialog->property("visible").toBool());
             QTRY_VERIFY(snapshots > previousFrames);
             QVERIFY(window->isVisible());
-            QVERIFY(window->property("pendingWindowAction").toString().isEmpty());
             QCOMPARE(quit.count(), 0);
             QCOMPARE(client.state(), QAbstractSocket::ConnectedState);
         }
@@ -5820,6 +5697,7 @@ private slots:
             {"kind", "number"}, {"unit", "C"},        {"available", true}, {"value", 54.3}};
         QCOMPARE(SensorTrayManager::compact(r), QString("54"));
         QVERIFY(SensorTrayManager::tooltip(r).contains(QString::fromUtf8("54.3 °C")));
+        QVERIFY(SensorTrayManager::tooltip(r).contains("HWiNFO / CPU"));
         {
             SensorTrayManager manager(path, true);
             manager.setReadings({r});
@@ -5840,9 +5718,15 @@ private slots:
             QCOMPARE(manager.values()["cpu"].toMap()["text"].toString(), QString("55"));
             manager.setReadings({});
             QCOMPARE(manager.values()["cpu"].toMap()["text"].toString(), QString::fromUtf8("-"));
+            QCOMPARE(manager.values()["cpu"].toMap()["module"].toString(), QString("HWiNFO"));
         }
         SensorTrayManager restored(path, true);
         QCOMPARE(restored.entries().size(), 2);
+        QCOMPARE(restored.values()["cpu"].toMap()["module"].toString(), QString("HWiNFO"));
+        QSettings saved(path, SettingsStore::format());
+        const auto backup = ConfigurationFile::snapshot(saved);
+        const auto imported = ConfigurationFile::decode(ConfigurationFile::encode(backup));
+        QVERIFY2(imported.error.isEmpty(), qPrintable(imported.error));
         restored.remove("cpu");
         QCOMPARE(restored.entries().size(), 1);
         SensorTrayManager empty(path, true);
@@ -6110,7 +5994,7 @@ private slots:
         QString extra;
         QVariantMap reading{
             {"id", "cpu"},   {"name", "CPU temperature"}, {"group", "CPU"}, {"kind", "number"}, {"unit", "C"},
-            {"value", 54.3}, {"available", true}};
+            {"value", 54.3}, {"available", true}, {"source", "coretemp"}};
         {
             TaskbarIconManager manager(file, true);
             QQuickWindow main;
@@ -6138,6 +6022,8 @@ private slots:
         QCOMPARE(restored.entries().size(), 2);
         QCOMPARE(restored.entries()[0].toMap()["sensor"].toString(), QString("cpu"));
         QCOMPARE(restored.entries()[1].toMap()["name"].toString(), QString("My CPU"));
+        QCOMPARE(restored.values()[extra].toMap()["module"].toString(), QString("Core Temp"));
+        QCOMPARE(restored.values()["main"].toMap()["module"].toString(), QString("Core Temp"));
         restored.remove("main");
         QCOMPARE(restored.entries().size(), 2);
         restored.restoreLogo();
@@ -6231,12 +6117,13 @@ private slots:
         local.stopService();
         local.sampleTimer.stop();
         local.sensorTrayTimer.stop();
-        QVariantMap reading{{"id", "tray-only"}, {"source", "windows"}, {"name", "CPU temperature"},
-                            {"group", "CPU"},    {"kind", "number"},    {"value", 54.3},
+        QVariantMap reading{{"id", "tray-only"}, {"source", "hwinfo"}, {"name", "GPU Hot Spot Temperature"},
+                            {"group", "dGPU [#1]: NVIDIA GeForce RTX 4090: GIGABYTE GeForce RTX 4090 WINDFORCE 24G (GV-N4090WF3-24GD)"},
+                            {"kind", "number"},    {"value", 54.3375},
                             {"unit", "C"},       {"available", true}};
         auto second = reading;
         second["id"] = "second";
-        second["name"] = "CPU load";
+        second["name"] = "GPU load";
         local.trayManager()->setReadings({reading, second});
         auto selected = local.selected;
         local.trayManager()->add("tray-only");
@@ -6254,6 +6141,30 @@ private slots:
         window->setProperty("previewPage", 7);
         QTest::qWait(600);
         QVERIFY(local.trayManager()->browsing);
+        auto *title = visualItem(window->contentItem(), "iconTitle_tray:tray-only");
+        QVERIFY(title);
+        QVERIFY(title->property("text").toString().contains("GPU Hot Spot Temperature · HWiNFO · System Tray"));
+        auto *detail = visualItem(window->contentItem(), "iconDetail_tray:tray-only");
+        auto *remove = visualItem(window->contentItem(), "removeIcon_tray:tray-only");
+        auto *header = visualItem(window->contentItem(), "iconHeader_tray:tray-only");
+        QVERIFY(detail && remove && header);
+        QVERIFY(!detail->property("text").toString().contains('\n'));
+        QVERIFY(detail->property("text").toString().startsWith("54.3 °C"));
+        const auto originalWidth = window->width();
+        for (int width : {1024, 1600}) {
+            window->setWidth(width);
+            QTRY_VERIFY(detail->width() > 0);
+            QTRY_VERIFY(detail->mapToItem(remove, QPointF(detail->width(), 0)).x() <= 0);
+            QTRY_VERIFY(title->mapToItem(remove, QPointF(title->width(), 0)).x() <= 0);
+            QTRY_VERIFY(detail->mapToItem(header, QPointF(0, detail->height())).y() <= header->height());
+            if (const auto preview = qEnvironmentVariable("WHAT_ICON_LAYOUT_PREVIEW"); !preview.isEmpty()) {
+                QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+                window->update();
+                QTRY_VERIFY(!frames.isEmpty());
+                QVERIFY(window->grabWindow().save(preview + QString("/icons-%1.png").arg(width)));
+            }
+        }
+        window->setWidth(originalWidth);
         QVERIFY(window->findChild<QObject *>("addTraySensor"));
         auto *picker = window->findChild<QObject *>("traySensorPicker");
         QVERIFY(picker);
@@ -7759,6 +7670,16 @@ private slots:
         auto *page = window->findChild<QObject *>("sensorsPage");
         QVERIFY(list && page);
         QTRY_COMPARE(list->property("count").toInt(), 3010);
+        for (const auto &unit : {QString("C"), QString("°C"), QString("F"), QString("°F"), QString("K")}) {
+            for (double value : {59.3284, 60.0, -5.678}) {
+                QVariant formatted;
+                const QVariantMap reading{{"value", value}, {"unit", unit}, {"kind", "number"}, {"available", true}};
+                QVERIFY(QMetaObject::invokeMethod(page, "showValue", Q_RETURN_ARG(QVariant, formatted),
+                                                  Q_ARG(QVariant, reading)));
+                QCOMPARE(formatted.toMap()["value"].toString(), QLocale().toString(value, 'f', 1));
+                QCOMPARE(formatted.toMap()["unit"].toString(), unit);
+            }
+        }
         auto *content = list->property("contentItem").value<QQuickItem *>();
         QVERIFY(content);
         auto rowAt = [&](int index) -> QQuickItem * {
@@ -9525,6 +9446,23 @@ private slots:
         QTRY_COMPARE(local.browserModel.rowCount(), local.browser().size());
     }
 
+    void specificationsInputDevices() {
+        QCOMPARE(inputDeviceName("HID Keyboard Device", "HID Keyboard Device", "CORSAIR K95"), QString("CORSAIR K95"));
+        QCOMPARE(inputDeviceName("ELECOM Trackball Mouse", "HID-compliant mouse", "USB Receiver"), QString("ELECOM Trackball Mouse"));
+        QVERIFY(inputDeviceName("HID-compliant mouse", "HID-compliant mouse", "USB Receiver").isEmpty());
+        QVERIFY(inputDeviceName("", "", "").isEmpty());
+        QVERIFY(inputDeviceName("HID Keyboard Device", "HID Keyboard Device", "Corsair virtual input device").isEmpty());
+        const auto report = inputSpecifications();
+        // CI machines may expose only generic or virtual input interfaces.
+        QVERIFY(report.isEmpty() || report.startsWith("Input devices\n"));
+        QVERIFY(!report.contains(": USB Receiver"));
+        QVERIFY(!report.contains("One device can expose"));
+        // Device instance paths contain serials and must stay out of copied reports.
+        QVERIFY(!report.contains("HID\\"));
+        QVERIFY(!report.contains("USB\\"));
+        qInfo().noquote() << report;
+    }
+
     void specificationsInventoryScript() {
         QFile fixture(":/tests/specs_inventory_fixture.ps1");
         QFile inventory(":/src/modules/windows/specs/SpecsInventory.ps1");
@@ -9661,6 +9599,11 @@ private slots:
         QVERIFY(local.specs().contains("Monitors"));
         QVERIFY(local.specs().contains("Boot mode:"));
         QVERIFY(local.specs().contains("TPM:"));
+        const auto osStart = local.specs().indexOf("Operating system\n");
+        const auto activation = local.specs().indexOf("Windows activation:");
+        QVERIFY(osStart >= 0 && activation > osStart);
+        const auto sectionEnd = local.specs().indexOf("\n\n", osStart);
+        QVERIFY(sectionEnd < 0 || activation < sectionEnd);
         QVERIFY(!local.specs().contains("Specifications have not"));
         if (!qEnvironmentVariableIsEmpty("WHAT_SPECS_PREVIEW")) {
             QFile report(qEnvironmentVariable("WHAT_SPECS_PREVIEW") + "/specs-hardware.txt");
@@ -9851,6 +9794,12 @@ private slots:
         QVERIFY(!initialPanel->property("expanded").toBool());
         QCOMPARE(initialReveal->height(), 0.0);
         window->show();
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *modulesHeading = window->findChild<QQuickItem *>("overviewModulesHeading");
+        auto *serviceControls = window->findChild<QQuickItem *>("overviewServiceControls");
+        QVERIFY(modulesHeading && serviceControls);
+        const auto sceneTop = [](QQuickItem *item) { return item->mapToScene(QPointF()).y(); };
+        QTRY_VERIFY(sceneTop(initialPanel) < sceneTop(modulesHeading));
         std::function<QQuickItem *(QQuickItem *, QString)> find = [&](QQuickItem *item,
                                                                       QString name) -> QQuickItem * {
             if (item->objectName() == name)
@@ -9901,10 +9850,22 @@ private slots:
         local.clientCount = 1;
         emit local.changed();
         QTRY_COMPARE(window->property("status").toMap()["clients"].toInt(), 1);
+        QTRY_VERIFY(sceneTop(panel) >= sceneTop(serviceControls) + serviceControls->height());
         QVERIFY(panel->property("expanded").toBool());
+        // Losing one installation must not move pairing up while another is connected.
+        local.clientCount = 2;
+        emit local.changed();
+        QTRY_COMPARE(window->property("status").toMap()["clients"].toInt(), 2);
+        local.clientCount = 1;
+        emit local.changed();
+        QTRY_COMPARE(window->property("status").toMap()["clients"].toInt(), 1);
+        QTRY_VERIFY(sceneTop(panel) >= sceneTop(serviceControls) + serviceControls->height());
         local.clientCount = 0;
         emit local.changed();
         QTRY_COMPARE(window->property("status").toMap()["clients"].toInt(), 0);
+        QTRY_VERIFY(sceneTop(panel) < sceneTop(modulesHeading));
+        QCOMPARE(panel, initialPanel);
+        QCOMPARE(find(window->contentItem(), "pairingInstallation"), selection);
         QVERIFY(panel->property("expanded").toBool());
         QVERIFY(QMetaObject::invokeMethod(toggle, "clicked"));
         QVERIFY(!panel->property("expanded").toBool());
@@ -9916,13 +9877,16 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(toggle, "clicked"));
         QCOMPARE(reveal->height(), 0.0);
         local.setAnimationsEnabled(true);
+        local.clientCount = 1;
+        emit local.changed();
+        QTRY_VERIFY(sceneTop(panel) >= sceneTop(serviceControls) + serviceControls->height());
         auto *flick = qvariant_cast<QObject *>(scroll->property("contentItem"));
         QVERIFY(flick);
         flick->setProperty("contentY", 0);
         QVERIFY(QMetaObject::invokeMethod(toggle, "clicked"));
         QTRY_VERIFY(flick->property("contentY").toDouble() > 0);
-        QVERIFY(panel->y() + panel->height() <=
-                flick->property("contentY").toDouble() + flick->property("height").toDouble() + 2);
+        QTRY_VERIFY(panel->mapToItem(qobject_cast<QQuickItem *>(flick), QPointF(0, panel->height())).y()
+                    <= flick->property("height").toDouble() + 2);
         QVERIFY(!local.browserVisible);
         window->setProperty("previewPage", 1);
         QTRY_VERIFY(local.browserVisible);
@@ -12947,6 +12911,10 @@ private slots:
         auto *portableSection = window->findChild<QObject *>("portableSection");
         QVERIFY(portableSection);
         QVERIFY(portableSection->property("expanded").toBool());
+        auto *executable = window->findChild<QObject *>("installationExecutablePath");
+        QVERIFY(executable);
+        QCOMPARE(executable->property("text").toString(),
+                 QDir::toNativeSeparators(QCoreApplication::applicationFilePath()));
         auto installedStatus = local.info();
         installedStatus["packaged"] = true;
         // Keep this simulated package identity when the controller next updates.
@@ -12955,6 +12923,7 @@ private slots:
         QVERIFY(module->property("available").toBool());
         QVERIFY(toggle->property("checked").toBool());
         QCOMPARE(portableSection->property("title").toString(), QString("Installation"));
+        QCOMPARE(executable->property("text").toString(), local.executablePath());
         window->setProperty("previewPage", 5);
         QTRY_VERIFY(toggle->isEnabled());
 
@@ -13722,6 +13691,8 @@ void ControllerTests::webReadinessAndShellWarningColours() {
             property color accent: Theme.accent
             property color error: Theme.error
             property color warning: Theme.warning
+            property color readingColour: Theme.permissionReading
+            property color muted: Theme.muted
             property color webColour: ModuleStatus.statusColour(controller, 'haweb', Theme)
             property string webStatus: ModuleStatus.connectionText(controller, 'haweb')
             function failWeb() { controller.info = {moduleIssues: {haweb: 'Browser failed'}}; }
@@ -13729,6 +13700,13 @@ void ControllerTests::webReadinessAndShellWarningColours() {
                 objectName: 'shellBadge'
                 access: PermissionBadge.Shell
                 text: 'Home Assistant Shell Access'
+            }
+            Row {
+                y: 30; spacing: 8
+                PermissionBadge { objectName: 'readingBadge'; access: PermissionBadge.Readings; text: 'LOCAL' }
+                PermissionBadge { objectName: 'cloudBadge'; access: PermissionBadge.Cloud; text: 'CLOUD' }
+                PermissionBadge { objectName: 'controlBadge'; access: PermissionBadge.Controls; text: 'Can Run' }
+                PermissionBadge { objectName: 'blockedBadge'; access: PermissionBadge.Blocked; text: 'Blocked' }
             }
             BeacnSettings {
                 y: 80; width: 680
@@ -13751,6 +13729,12 @@ void ControllerTests::webReadinessAndShellWarningColours() {
     auto *badge = window->findChild<QObject *>("shellBadge");
     QVERIFY(badge);
     QCOMPARE(badge->property("foreground").value<QColor>(), window->property("error").value<QColor>());
+    for (const auto &role : {qMakePair("readingBadge", "readingColour"), qMakePair("cloudBadge", "warning"),
+                             qMakePair("controlBadge", "warning"), qMakePair("blockedBadge", "muted")}) {
+        auto *access = window->findChild<QObject *>(role.first);
+        QVERIFY(access);
+        QCOMPARE(access->property("foreground").value<QColor>(), window->property(role.second).value<QColor>());
+    }
     auto *label = badge->property("contentItem").value<QObject *>();
     QVERIFY(label);
     QCOMPARE(label->property("text").toString(), badge->property("text").toString());

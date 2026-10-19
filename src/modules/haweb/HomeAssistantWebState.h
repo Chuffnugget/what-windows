@@ -22,7 +22,7 @@ inline QString takeWebString(LPWSTR value) {
 struct HomeAssistantWeb::State {
     QSettings &settings;
     QString profile, address, viewMode, shortcut, shortcutError, message;
-    int zoom = 100;
+    int zoom = WebOptions::defaultScale;
     bool active = false, testing = false, presented = false, creating = false;
     bool loading = false, loaded = false, clearing = false, clearLogin = false;
     bool failed = false;

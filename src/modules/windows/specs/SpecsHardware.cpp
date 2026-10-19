@@ -1,12 +1,20 @@
 #include "SpecsHardware.h"
 #include <windows.h>
+#include <setupapi.h>
+#include <cfgmgr32.h>
+#include <initguid.h>
+#include <devpkey.h>
+#include <devguid.h>
 #include <dxgi1_2.h>
 #include <dxcore_interface.h>
 #include <tbs.h>
+#include <slpublic.h>
 #include <wrl/client.h>
 #include <QLibrary>
+#include <QMap>
 #include <QSettings>
 #include <QStringList>
+#include <QScopeGuard>
 
 using Microsoft::WRL::ComPtr;
 
@@ -20,6 +28,105 @@ QString unavailable(const char *query, unsigned long code) {
         .arg(query).arg(code, 8, 16, QLatin1Char('0'))
         .arg(reason.isEmpty() ? QString() : ": " + reason);
 }
+
+QString deviceText(DEVINST device, const DEVPROPKEY &key) {
+    wchar_t buffer[1024]{};
+    ULONG size = sizeof(buffer);
+    DEVPROPTYPE type = 0;
+    if (CM_Get_DevNode_PropertyW(device, &key, &type, reinterpret_cast<PBYTE>(buffer), &size, 0) != CR_SUCCESS ||
+        type != DEVPROP_TYPE_STRING)
+        return {};
+    buffer[std::size(buffer) - 1] = L'\0';
+    return QString::fromWCharArray(buffer).simplified();
+}
+}
+
+QString inputDeviceName(const QString &friendlyName, const QString &description, const QString &productName) {
+    static const QStringList generic{
+        "usb receiver", "wireless receiver", "usb input device", "bluetooth input device",
+        "hid keyboard device", "hid-compliant mouse", "hid-compliant device", "hid-compliant touch pad",
+        "hid-compliant touch screen", "keyboard", "mouse", "standard ps/2 keyboard",
+        "ps/2 compatible mouse", "rdp keyboard device", "rdp mouse device"};
+    for (const auto &candidate : {productName, friendlyName, description}) {
+        const auto name = candidate.simplified();
+        if (!name.isEmpty() && !generic.contains(name.toLower()) &&
+            !name.contains("virtual", Qt::CaseInsensitive) && !name.contains("virhid", Qt::CaseInsensitive))
+            return name;
+    }
+    return {};
+}
+
+QString inputSpecifications() {
+    QStringList lines;
+    for (const auto &category : {qMakePair(GUID_DEVCLASS_KEYBOARD, QString("Keyboard")),
+                                 qMakePair(GUID_DEVCLASS_MOUSE, QString("Mouse / pointing device"))}) {
+        const auto devices = SetupDiGetClassDevsW(&category.first, nullptr, nullptr, DIGCF_PRESENT);
+        if (devices == INVALID_HANDLE_VALUE) {
+            lines << category.second + ": " + unavailable("SetupDiGetClassDevs", GetLastError());
+            continue;
+        }
+        QMap<QString, int> names;
+        for (DWORD index = 0;; ++index) {
+            SP_DEVINFO_DATA device{};
+            device.cbSize = sizeof(device);
+            if (!SetupDiEnumDeviceInfo(devices, index, &device)) {
+                if (GetLastError() != ERROR_NO_MORE_ITEMS)
+                    lines << category.second + ": " + unavailable("SetupDiEnumDeviceInfo", GetLastError());
+                break;
+            }
+            const auto friendlyName = deviceText(device.DevInst, DEVPKEY_Device_FriendlyName);
+            const auto description = deviceText(device.DevInst, DEVPKEY_Device_DeviceDesc);
+
+            // HID children often say only "HID Keyboard Device". The immediate
+            // parent usually carries the product name; do not walk up to USB hubs.
+            auto product = deviceText(device.DevInst, DEVPKEY_Device_BusReportedDeviceDesc);
+            DEVINST parent = 0;
+            if (product.isEmpty() && CM_Get_Parent(&parent, device.DevInst, 0) == CR_SUCCESS)
+                product = deviceText(parent, DEVPKEY_Device_BusReportedDeviceDesc);
+            const auto name = inputDeviceName(friendlyName, description, product);
+            if (!name.isEmpty())
+                ++names[name];
+        }
+        SetupDiDestroyDeviceInfoList(devices);
+        for (auto it = names.cbegin(); it != names.cend(); ++it)
+            lines << category.second + ": " + it.key()
+                + (it.value() > 1 ? QString(" (%1 interfaces)").arg(it.value()) : QString());
+    }
+    return lines.isEmpty() ? QString() : "Input devices\n" + lines.join('\n');
+}
+
+QString windowsActivationStatus() {
+    HSLC context = nullptr;
+    const auto opened = SLOpen(&context);
+    if (FAILED(opened))
+        return unavailable("SLOpen", opened);
+    const auto close = qScopeGuard([context] { SLClose(context); });
+
+    // Ask only about Windows, not Office or other licensed applications. This
+    // reads local activation state; it neither activates nor verifies online.
+    const SLID windowsId{0x55c92734, 0xd682, 0x4d71, {0x98, 0x3e, 0xd6, 0xec, 0x3f, 0x16, 0x05, 0x9f}};
+    UINT count = 0;
+    SL_LICENSING_STATUS *states = nullptr;
+    const auto result = SLGetLicensingStatusInformation(context, &windowsId, nullptr, nullptr, &count, &states);
+    const auto release = qScopeGuard([states] { SLFreeMemory(states); });
+    if (FAILED(result))
+        return unavailable("SLGetLicensingStatusInformation", result);
+    if (!states || count == 0)
+        return "Unavailable (Windows returned no activation status)";
+
+    bool grace = false, notification = false, unlicensed = false;
+    for (UINT i = 0; i < count; ++i) {
+        if (states[i].eStatus == SL_LICENSING_STATUS_LICENSED)
+            return "Activated";
+        grace |= states[i].eStatus == SL_LICENSING_STATUS_IN_GRACE_PERIOD;
+        notification |= states[i].eStatus == SL_LICENSING_STATUS_NOTIFICATION;
+        unlicensed |= states[i].eStatus == SL_LICENSING_STATUS_UNLICENSED;
+    }
+    if (notification)
+        return "Not activated (notification mode)";
+    if (grace)
+        return "Activation grace period";
+    return unlicensed ? "Not activated" : "Unavailable (unrecognised licensing state)";
 }
 
 QString graphicsSpecifications() {

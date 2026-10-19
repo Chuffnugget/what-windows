@@ -11,10 +11,9 @@ Item {
     required property Item pageSlot
     property bool pageActive: false
     property bool blocked: false
-    property bool transitioning: false
     readonly property bool pip: web.overlayVisible && web.overlayMode === "pip"
     readonly property bool detached: web.overlayVisible || web.desktopActive
-    readonly property bool presented: web.enabled && web.url.length > 0 && (web.overlayVisible ? overlay.visible && !web.pipMinimised : web.desktopActive ? desktop.visible : pageActive && !blocked && !transitioning)
+    readonly property bool presented: web.enabled && web.url.length > 0 && (web.overlayVisible ? overlay.visible && !web.pipMinimised : web.desktopActive ? desktop.visible : pageActive && !blocked)
     property bool toolbarShown: true
     property bool pipToolbarCollapsed: false
     readonly property bool toolbarVisible: !web.options.autoHideToolbar || toolbarShown || !web.ready || web.loading

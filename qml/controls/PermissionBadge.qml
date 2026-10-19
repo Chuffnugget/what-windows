@@ -1,23 +1,25 @@
 import QtQuick
 import QtQuick.Controls.Basic
 
-// Describes access without changing it. Routes use the same level as the
-// capability they carry; cloud access is not a separate severity level.
+// Describes access without changing it. Text still identifies the permission;
+// amber marks cloud exposure or control, while red marks supplied shell commands.
 Control {
     id: badge
 
-    enum Access { Blocked, Readings, Controls, Shell }
+    enum Access { Blocked, Readings, Controls, Shell, Cloud }
     property int access: PermissionBadge.Blocked
     property string text: "Not Allowed"
     property string help: ""
     property bool compact: false
 
     readonly property color foreground: access === PermissionBadge.Shell ? Theme.error
-        : access === PermissionBadge.Blocked ? Theme.muted : Theme.accent
+        : access === PermissionBadge.Blocked ? Theme.muted
+        : access === PermissionBadge.Readings ? Theme.permissionReading : Theme.warning
     readonly property color fill: access === PermissionBadge.Shell ? Theme.errorSurface
-        : access === PermissionBadge.Controls ? Theme.permissionControl
+        : access === PermissionBadge.Controls || access === PermissionBadge.Cloud ? Theme.permissionControl
         : access === PermissionBadge.Readings ? Theme.permissionRead : Theme.surface
     readonly property color outline: access === PermissionBadge.Shell ? Theme.errorOutline
+        : access === PermissionBadge.Controls || access === PermissionBadge.Cloud ? Theme.warningOutline
         : access === PermissionBadge.Readings ? Theme.outline : "transparent"
 
     implicitWidth: label.implicitWidth + leftPadding + rightPadding

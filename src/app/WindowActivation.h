@@ -37,10 +37,6 @@ inline bool notifyExistingWhatWindow(qint64 processId) {
 inline void restoreWhatWindow(QQuickWindow *window, const QString &savedMode = {}) {
     // Defer until the native tray/menu activation has finished unwinding.
     QTimer::singleShot(0, window, [window, savedMode] {
-        // A tray double-click also sends a single-click activation. Only cancel
-        // a pending close; the second open must leave the reveal running.
-        if (!window->property("pendingWindowAction").toString().isEmpty())
-            QMetaObject::invokeMethod(window, "cancelWindowTransition");
         const auto handle = reinterpret_cast<HWND>(window->winId());
         const bool fullscreen = savedMode == "fullscreen" ||
                                 (savedMode.isEmpty() && window->windowState() == Qt::WindowFullScreen);

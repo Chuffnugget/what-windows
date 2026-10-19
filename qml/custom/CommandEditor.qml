@@ -101,6 +101,7 @@ ColumnLayout {
         text: "Also Allow Cloud Connections"
         checked: editor.definition.cloud_enabled === true
         badgeText: "Cloud Home Assistant"
+        access: PermissionBadge.Cloud
         effective: checked && haPermission.effective && editor.manager.cloudEnabled
         blockedReason: "This command needs Home Assistant execution permission and the Custom module's cloud permission."
         description:

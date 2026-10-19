@@ -9,18 +9,6 @@ Item {
     required property Item sourceItem
     clip: true
 
-    // Bring in the backdrop quickly, then let the prompt's zoom finish above it.
-    Behavior on opacity {
-        id: fade
-
-        NumberAnimation {
-            duration: Theme.animationsEnabled
-                ? Math.min(90, fade.targetValue === 0 ? Theme.timings.dialogExit : Theme.timings.dialogEnter)
-                : 0
-            easing.type: Easing.OutQuad
-        }
-    }
-
     Item {
         anchors.fill: parent
 

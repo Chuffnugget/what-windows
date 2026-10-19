@@ -12,9 +12,8 @@ Dialog {
     // Native browser windows sit above QML. Hide the embedded view while
     // a modal prompt covers it; tooltips must not blank the dashboard.
     readonly property bool blocksWebView: visible && modal
-    property PopupMotion popupMotion: PopupMotion { popup: glassDialog }
-    enter: popupMotion.enter
-    exit: popupMotion.exit
+    enter: null
+    exit: null
 
     padding: 24
 

@@ -23,6 +23,7 @@ ColumnLayout {
 
         OptionCheckBox {
             id: toggle
+            checkedColor: accessBadge.foreground
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             implicitHeight: Math.max(32, contentItem.implicitHeight)
@@ -39,6 +40,7 @@ ColumnLayout {
             }
         }
         PermissionBadge {
+            id: accessBadge
             objectName: permission.objectName + "Badge"
             access: permission.effective ? permission.access : PermissionBadge.Blocked
             text: permission.effective ? permission.badgeText : permission.checked ? "Blocked" : "Not Allowed"

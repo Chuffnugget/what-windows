@@ -32,7 +32,7 @@ ModuleCard {
     PermissionOption {
         text: "Allow Custom Readings and Commands Over Cloud Connections"
         checked: card.controller.customSources.cloudEnabled
-        access: PermissionBadge.Readings
+        access: PermissionBadge.Cloud
         badgeText: "Cloud Route"
         help: "The cloud route is enabled for eligible readings and commands. Individual sharing and execution permissions still apply."
         onToggled: allowed => card.controller.customSources.cloudEnabled = allowed

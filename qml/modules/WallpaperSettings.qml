@@ -121,6 +121,7 @@ ModuleCard {
         text: "Allow Wallpaper Engine over Cloud Connections"
         checked: controller.wallpaper.cloud === true
         badgeText: "Cloud Home Assistant"
+        access: PermissionBadge.Cloud
         effective: checked && enabled && wallpaperRemote.checked
         blockedReason: "Wallpaper Engine must be enabled and allow Home Assistant control before Home Assistant can run cloud commands."
         onToggled: wallpaperModule.save()

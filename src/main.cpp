@@ -163,7 +163,7 @@ int main(int argc, char **argv) {
         QObject::connect(window, SIGNAL(windowQuitReady()), &app, SLOT(quit()));
         WindowFrame frame(reinterpret_cast<HWND>(window->winId()));
         frame.transitionRequested = [window](const QString &action) {
-            QMetaObject::invokeMethod(window, "transitionWindow", Q_ARG(QVariant, action));
+            QMetaObject::invokeMethod(window, "performWindowAction", Q_ARG(QVariant, action));
         };
         auto syncWindowAnimation = [&] {
             const auto info = controller.uiInfo();

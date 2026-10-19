@@ -151,6 +151,7 @@ ModuleCard {
         text: "Allow BEACN over Cloud Connections"
         checked: controller.beacn.cloud === true
         badgeText: "Cloud Home Assistant"
+        access: PermissionBadge.Cloud
         effective: checked && enabled && controller.beacn.control_enabled === true
         blockedReason: "BEACN must be enabled and allow Home Assistant control before Home Assistant can run cloud commands."
         onToggled: allowed => controller.saveBeacn(true, controller.beacn.control_enabled === true, allowed)

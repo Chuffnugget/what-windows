@@ -1,13 +1,12 @@
 import QtQuick
 
 // Capture only while moving. At rest, the original items render normally and
-// Qt releases the offscreen layer and shader. Shared by windows and popups.
+// Qt releases the offscreen layer and shader. Used by menus and other controls.
 QtObject {
     id: effect
 
     property Item target: null
-    // Separate window surfaces share one effect coordinate system. Ordinary
-    // controls use their own size and an origin of zero.
+    // Controls normally use their own size and an origin of zero.
     property size viewportSize: Qt.size(target ? target.width : 0, target ? target.height : 0)
     property point viewportOffset: Qt.point(0, 0)
     property real progress: 1

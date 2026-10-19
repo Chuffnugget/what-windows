@@ -11,7 +11,7 @@ ColumnLayout {
     spacing: Theme.spaceM
 
     HintLabel {
-        text: "Hardware, Windows, displays, network adapters and firmware. Serial numbers, usernames and network addresses are excluded."
+        text: "Hardware, Windows, displays, keyboards, mice, network adapters and firmware. Serial numbers, usernames and network addresses are excluded."
         Layout.fillWidth: true
         wrapMode: Text.WordWrap
     }

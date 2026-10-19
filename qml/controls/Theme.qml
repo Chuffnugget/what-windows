@@ -60,8 +60,10 @@ QtObject {
     readonly property color error: "#ff8585"
     readonly property color errorSurface: "#35232c"
     readonly property color errorOutline: "#a65262"
-    readonly property color permissionRead: surfaceColour("#12232f", "#252525")
-    readonly property color permissionControl: surfaceColour("#1e4052", "#404040")
+    // Permission colours keep their meaning when the overall theme changes.
+    readonly property color permissionReading: "#66caff"
+    readonly property color permissionRead: "#12232f"
+    readonly property color permissionControl: warningSurface
     readonly property color closeHover: "#d83e50"
     readonly property color closePressed: "#b52d3d"
 
@@ -127,8 +129,6 @@ QtObject {
             pages: 320,
             dialogEnter: 250,
             dialogExit: 180,
-            windowEnter: 400,
-            windowExit: 300,
             logo: 1500,
             logoPause: 180,
             toast: 3500

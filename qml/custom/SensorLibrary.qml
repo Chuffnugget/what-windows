@@ -25,9 +25,8 @@ Dialog {
     standardButtons: Dialog.Close
     footer: PromptButtons { standardButtons: library.standardButtons }
     background: GlassSurface {}
-    property PopupMotion popupMotion: PopupMotion { popup: library }
-    enter: popupMotion.enter
-    exit: popupMotion.exit
+    enter: null
+    exit: null
     Overlay.modal: GlassBackdrop {
         sourceItem: library.backdropSource
     }
@@ -116,9 +115,8 @@ Dialog {
         modal: true
         standardButtons: Dialog.Yes | Dialog.Cancel
         footer: PromptButtons { standardButtons: removal.standardButtons }
-        property PopupMotion popupMotion: PopupMotion { popup: removal }
-        enter: popupMotion.enter
-        exit: popupMotion.exit
+        enter: null
+        exit: null
         Overlay.modal: GlassBackdrop { sourceItem: library.backdropSource }
         background: GlassSurface {}
         contentItem: Label {

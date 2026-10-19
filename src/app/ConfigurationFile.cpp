@@ -201,13 +201,15 @@ bool valid(const QString &key, const QJsonValue &value) {
                (object["scope"] == "local" || (object["scope"] == "cloud" && object["tls"].toBool()));
     }
     if (key == "tray/sensors") {
-        if (!value.isArray() || value.toArray().size() > 32)
+        if (!value.isArray() || value.toArray().size() > 64)
             return false;
         for (auto entry : value.toArray()) {
             if (!entry.isObject())
                 return false;
             const auto row = entry.toObject();
-            if (row.size() != 5 || !string(row["id"]) || row["id"].toString().isEmpty() ||
+            const bool hasSource = row.contains("source");
+            if (row.size() != (hasSource ? 6 : 5) || (hasSource && !string(row["source"], 64)) ||
+                !string(row["id"]) || row["id"].toString().isEmpty() ||
                 !string(row["name"], 255) || !string(row["foreground"], 32) ||
                 !string(row["background"], 32) || !string(row["font"], 512))
                 return false;

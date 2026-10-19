@@ -14,6 +14,7 @@ CheckBox {
     // Configure the indicator without forcing deferred creation from a cached row.
     property bool indicatorCentered: false
     property bool indicatorVisible: true
+    property color checkedColor: Theme.accent
 
     indicator: Rectangle {
         x: c.indicatorCentered ? (c.width - width) / 2 : 0
@@ -31,7 +32,7 @@ CheckBox {
             width: 10
             height: c.checkState === Qt.PartiallyChecked ? 3 : 10
 
-            color: c.enabled ? Theme.accent : Theme.muted
+            color: c.enabled ? c.checkedColor : Theme.muted
             visible: c.checkState !== Qt.Unchecked
         }
     }

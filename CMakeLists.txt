@@ -412,6 +412,8 @@ target_link_libraries(
             user32
             dxgi
             tbs
+            cfgmgr32
+            slc
             shcore
             pdh
             powrprof
@@ -561,6 +563,8 @@ if(BUILD_TESTING)
                 user32
                 dxgi
                 tbs
+                cfgmgr32
+                slc
                 shcore
                 pdh
             powrprof

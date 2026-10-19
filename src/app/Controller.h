@@ -54,6 +54,7 @@ class Controller : public QObject, public QAbstractNativeEventFilter {
     Q_PROPERTY(HomeAssistantWeb *homeAssistantWeb MEMBER homeAssistantWeb CONSTANT)
     Q_PROPERTY(Announcements *announcements MEMBER announcements CONSTANT)
     Q_PROPERTY(QVariantMap info READ uiInfo NOTIFY uiChanged)
+    Q_PROPERTY(QString executablePath READ executablePath CONSTANT)
     Q_PROPERTY(QVariantList sensors READ sensors NOTIFY sensorsChanged)
     Q_PROPERTY(QVariantList browser READ browser NOTIFY sensorsChanged)
     Q_PROPERTY(QAbstractItemModel *sensorModel READ sensorModel CONSTANT)
@@ -125,6 +126,7 @@ public:
     }
 
     QVariantMap info() const;
+    QString executablePath() const;
     QVariantMap uiInfo();
     QVariantList sensors() const;
     QVariantList browser() const;
@@ -288,8 +290,6 @@ public:
     QVariantMap uiTimings() const;
     Q_INVOKABLE void setUiTiming(const QString &key, int milliseconds);
     Q_INVOKABLE void resetUiTimings();
-    Q_INVOKABLE void setTransitionStyle(const QString &style);
-    Q_INVOKABLE void setRefractionStrength(int percent);
 
     Q_INVOKABLE void setDiagnosticLogging(bool enabled);
     Q_INVOKABLE void setAppControlEnabled(bool enabled);

@@ -10,6 +10,7 @@ Switch {
     hoverEnabled: true
     implicitHeight: Theme.controlHeight
     property int animationDuration: Theme.animationsEnabled ? Theme.timings.controls : 0
+    property color checkedColor: Theme.accent
 
     indicator: Rectangle {
         implicitWidth: 44
@@ -19,7 +20,7 @@ Switch {
         x: 4
         y: (control.height - height) / 2
 
-        color: control.enabled && control.checked ? Theme.accent : Theme.outline
+        color: control.enabled && control.checked ? control.checkedColor : Theme.outline
         border.width: control.visualFocus ? 1 : 0
         border.color: Theme.accent
 
