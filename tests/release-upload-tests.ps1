@@ -51,6 +51,19 @@ function global:gh {
     }
     if ($call[0] -eq 'release' -and $call[1] -eq 'edit') { return }
     if ($call[0] -eq 'api') {
+        if ($call[1] -eq 'repos/fixture/what/releases?per_page=100') {
+            if ($global:whatUploadFixtureCase -eq 'destination-lookup-failed') {
+                $global:LASTEXITCODE = 1
+                return
+            }
+            if ($global:whatUploadFixtureCase -eq 'destination-invalid-json') { return 'invalid json' }
+            # Include another release to ensure the check matches the exact tag.
+            @{tagName='v0.0.1-beta.4'; isDraft=$false} | ConvertTo-Json -Compress
+            if ($global:whatUploadFixtureCase -ne 'new') {
+                @{tagName='v0.0.1-beta.5'; isDraft=($global:whatUploadFixtureCase -ne 'published')} | ConvertTo-Json -Compress
+            }
+            return
+        }
         # GitHub's release-by-tag endpoint does not return drafts.
         if ($call[1] -like '*/releases/tags/*') {
             $global:LASTEXITCODE = 1
@@ -70,8 +83,21 @@ function global:gh {
     throw "Unexpected fixture CLI call: $($call -join ' ')"
 }
 try {
+    foreach ($case in @('new', 'draft', 'published', 'destination-lookup-failed', 'destination-invalid-json')) {
+        $global:whatUploadFixtureCase = $case
+        $global:whatUploadFixtureCalls = [Collections.Generic.List[string]]::new()
+        $failure = $null
+        try {
+            & "$root/scripts/Publish-Release.ps1" -CheckOnly -Tag 'v0.0.1-beta.5' -Repository 'fixture/what'
+        } catch { $failure = $_ }
+        if (($null -eq $failure) -ne ($case -in @('new', 'draft'))) { throw "Incorrect release preflight result: $case. $failure" }
+        if ($global:whatUploadFixtureCalls.Count -ne 1 -or $global:whatUploadFixtureCalls[0] -notlike 'api * --paginate --jq *') {
+            throw "Preflight must only read release metadata: $case"
+        }
+        Write-Host "PASS: release preflight $case"
+    }
     $cases = @('new', 'draft', 'published', 'upload-failed', 'digest-mismatch', 'missing', 'extra',
-        'lookup-failed', 'published-during-upload', 'tag-changed')
+        'lookup-failed', 'published-during-upload', 'tag-changed', 'destination-lookup-failed', 'destination-invalid-json')
     foreach ($case in $cases) {
         $global:whatUploadFixtureCase = $case
         $global:whatUploadFixtureCalls = [Collections.Generic.List[string]]::new()
@@ -91,8 +117,9 @@ try {
         }
         if ($case -eq 'new' -and !$global:whatUploadFixtureCreated) { throw 'New release was not created.' }
         if ($case -eq 'draft' -and $global:whatUploadFixtureCreated) { throw 'Existing draft was recreated.' }
-        if ($case -eq 'published' -and @($global:whatUploadFixtureCalls | Where-Object { $_ -like 'release upload*' }).Count) {
-            throw 'Published release assets were replaced.'
+        if ($case -in @('published', 'destination-lookup-failed', 'destination-invalid-json') -and
+            @($global:whatUploadFixtureCalls | Where-Object { $_ -like 'release *' }).Count) {
+            throw "Unsafe release destination was modified: $case"
         }
         Write-Host "PASS: release upload boundary $case"
     }

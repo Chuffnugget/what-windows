@@ -8466,24 +8466,23 @@ private slots:
         window->setPosition(0, 0);
         window->show();
         QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *frame = window->findChild<QWindow *>("nativeWebFrame");
+        QVERIFY(frame);
+        QVERIFY(QTest::qWaitForWindowExposed(frame));
         window->raise();
         window->requestActivate();
         QVERIFY(QTest::qWaitForWindowActive(window));
-        // QTest's QWindow mouse events do not move the OS cursor. Native popup
-        // and child windows also consult that position when delivering hover.
+        // Native child and popup windows need the real cursor position. Use
+        // native movement alone: mixing it with QTest mouse events lets queued
+        // Windows hover events overwrite the synthetic pointer's current target.
         const auto movePointer = [&](QPoint point) {
             QCursor::setPos(window->mapToGlobal(point));
-            QTest::mouseMove(window, point);
         };
         movePointer(QPoint(180, 240));
         auto *tip = window->property("sharedTip").value<QObject *>();
         QVERIFY(tip);
         QCOMPARE(tip->objectName(), QString("whatToolTip"));
         QCOMPARE(tip, window->property("otherTip").value<QObject *>());
-        auto *frame = window->findChild<QWindow *>("nativeWebFrame");
-        QVERIFY(frame);
-        QTRY_VERIFY(frame->isVisible());
-
         for (const auto *name : {"first", "second"}) {
             auto *control = window->findChild<QQuickItem *>(name);
             QVERIFY(control);

@@ -276,7 +276,20 @@ and declares its required release permissions. GitHub Free supports environment
 secrets in public repositories only; making a repository private changes their
 availability. Keep Actions enabled and allow the pinned actions in the workflow.
 
-A tag build packages both architectures, then uploads them together to a draft Release.
+A tag build checks its release destination before downloading dependencies or
+compiling. An already published tag stops immediately. After publication, bump
+the project version and create a new tag for further fixes. Do not move a
+published tag to a different commit.
+
+You can run the same read-only check locally with your GitHub CLI login:
+
+```powershell
+./scripts/Publish-Release.ps1 -CheckOnly -Tag v0.0.1-beta.2 -Repository Chuffnugget/what-windows
+```
+
+Use the version you intend to release. This does not create a tag or release.
+
+The build packages both architectures, then uploads them together to a draft Release.
 `scripts/Publish-Release.ps1` checks the exact asset set, sizes and SHA-256 hashes
 before publication. It finds drafts with `gh release view`, then lists assets
 using the release's numeric ID. GitHub's REST release-by-tag endpoint only returns

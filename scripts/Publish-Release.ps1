@@ -1,12 +1,30 @@
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = 'Publish')]
 param(
-    [Parameter(Mandatory)][string]$ArtifactDirectory,
+    [Parameter(Mandatory, ParameterSetName = 'Publish')][string]$ArtifactDirectory,
+    [Parameter(Mandatory, ParameterSetName = 'Check')][switch]$CheckOnly,
     [Parameter(Mandatory)][string]$Tag,
     [Parameter(Mandatory)][string]$Repository
 )
 $ErrorActionPreference = 'Stop'
 if ($Tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:-beta\.[0-9]+)?$') { throw 'Invalid release tag.' }
 if ($Repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { throw 'Invalid repository.' }
+function Get-ReleaseTarget {
+    # Listing releases includes drafts and distinguishes an unused tag from a
+    # failed lookup. A network or authentication error must stop the build.
+    $releases = & gh api "repos/$Repository/releases?per_page=100" --paginate --jq '.[] | {tagName: .tag_name, isDraft: .draft} | @json'
+    if ($LASTEXITCODE -ne 0) { throw 'Could not check the release destination. Resolve the GitHub error before building.' }
+    $existing = @($releases | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object tagName -CEQ $Tag)
+    if ($existing.Count -gt 1) { throw "More than one release uses $Tag." }
+    if ($existing.Count -and $existing[0].isDraft -ne $true) {
+        throw "Release $Tag is already published. Bump the project version and use a new tag; published assets cannot be replaced."
+    }
+    return $existing
+}
+if ($CheckOnly) {
+    Get-ReleaseTarget | Out-Null
+    Write-Host "Release destination is available: $Repository $Tag"
+    return
+}
 $files = @(Get-ChildItem -LiteralPath $ArtifactDirectory -File)
 $manifests = @($files | Where-Object Name -in @('update.json', 'update-arm64.json'))
 if (!$manifests.Count) { throw 'No supported update manifest found.' }
@@ -34,10 +52,8 @@ function Invoke-ReleaseGh([string[]]$Arguments) {
     return $output
 }
 # A rerun can resume a draft. Never overwrite a published release.
-$existing = & gh release view $Tag --repo $Repository --json isDraft 2>$null
-if ($LASTEXITCODE -eq 0) {
-    if (($existing | ConvertFrom-Json).isDraft -ne $true) { throw 'Release already published; refusing to replace assets.' }
-} else {
+$existing = Get-ReleaseTarget
+if (!$existing) {
     Invoke-ReleaseGh @('release', 'create', $Tag, '--repo', $Repository, '--verify-tag', '--draft', '--title', $Tag,
         '--notes', 'For Windows installation, download and run the Setup.exe asset. UpdatePayload.msix and update.json are for the in-app updater.', '--generate-notes') | Out-Host
 }

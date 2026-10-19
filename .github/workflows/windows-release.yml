@@ -40,6 +40,13 @@ jobs:
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne $expectedTag) {
             throw "Release tag '$env:GITHUB_REF_NAME' does not match source version '$version' (expected '$expectedTag'). Commit the version bump before tagging. Re-running this old tag will not include a newer version commit."
           }
+      - name: Check release destination before building
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: ./scripts/Publish-Release.ps1 -CheckOnly -Tag $env:RELEASE_TAG -Repository $env:RELEASE_REPOSITORY
       - name: Validate packaging policy without installation
         run: |
           ./tests/release-policy-tests.ps1
