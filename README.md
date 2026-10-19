@@ -27,10 +27,20 @@
   </a>
 </p>
 
-WHAT connects a Windows PC to Home Assistant. Choose the readings to share and
-the controls Home Assistant may use. It targets Windows 11 x64 and native ARM64.
-ARM64 support is awaiting hardware validation and has a smaller supported module
-set. See [building for ARM64](docs/RELEASE.md#native-windows-arm64).
+WHAT (Windows Home Assistant Toolkit) connects Windows PCs to Home Assistant for
+monitoring and control. It supports Windows APIs for audio, media, displays,
+notifications and Dynamic Lighting; HWiNFO and Core Temp shared memory; NVIDIA
+NVML; BEACN; Corsair iCUE RGB and Automation; and Wallpaper Engine. Custom sensors,
+saved commands and an embedded Home Assistant dashboard are included. Connect
+one or more Home Assistant installations through WHAT API or MQTT, and choose
+which readings and controls each can access.
+
+[Home Assistant integration](https://github.com/Chuffnugget/what-integration#readme) - install alongside this Windows app.
+
+This repository contains the Windows application. It targets Windows 11 x64 and
+native ARM64. ARM64 support is awaiting hardware validation and has a smaller
+supported module set. See [building for ARM64](documentation/RELEASE.md#native-windows-arm64).
+The companion integration requires Home Assistant 2026.9+.
 
 ## Get started
 
@@ -39,12 +49,13 @@ set. See [building for ARM64](docs/RELEASE.md#native-windows-arm64).
    and automatic update installation. For portable use, extract the complete
    portable ZIP and run `WHAT.exe`.
 2. Install the [Home Assistant integration](https://github.com/Chuffnugget/what-integration#readme).
-3. Start WHAT's HA API connection. In HA, open **Settings > Devices & services**
-   and configure the discovered PC. If discovery is unavailable, choose
-   **Add integration > WHAT** and enter the address and port shown in WHAT.
-4. In WHAT, open **Settings > Home Assistant Installations** and click **Pairing**
-   (also shown on **Overview > Pair This PC**). Copy the pairing token and certificate
-   fingerprint into HA. Do not share the private certificate key.
+3. In WHAT, open **Overview > Pair This PC** or **Settings > Home Assistant
+   Installations**. Add or select an installation, choose **WHAT API (Recommended)**
+   or **MQTT**, and open its **Pairing** details.
+4. In Home Assistant, open **Settings > Devices & services** and configure the
+   discovered PC, or choose **Add integration > WHAT**. Match the connection method
+   and copy the details shown in WHAT. WHAT API supports local and remote access;
+   MQTT uses your configured broker. Keep the private certificate key on the PC.
 5. Enable the modules you need, select readings in the sensor browser, and enable
    any required control permissions.
 
@@ -57,8 +68,8 @@ Use **WHAT > Settings > Home Assistant Installations** to add, name, edit,
 enable, disable or delete API and MQTT connections. Each has separate pairing
 details and connects independently. Select the matching installation before
 copying its token. Remote API and MQTT pairing can be completed without direct
-PC access. See [remote API setup](docs/REMOTE.md) and
-[MQTT setup](docs/MQTT.md).
+PC access. See [remote API setup](documentation/REMOTE.md) and
+[MQTT setup](documentation/MQTT.md).
 
 ## Modules
 
@@ -87,7 +98,7 @@ Temp uses distance-to-TjMax mode. See the module guides below for prerequisites 
 
 ## Connections and sharing
 
-The default HA API connection uses authenticated TLS WebSockets. Optional remote
+The recommended WHAT API connection uses authenticated TLS WebSockets. Optional remote
 access uses your Home Assistant HTTPS address, including Nabu Casa. Both ends
 must permit remote access.
 
@@ -130,12 +141,12 @@ HA API or MQTT transport.
 Use **Settings > Application updates** to check releases. Beta updates are off
 by default. **Choose release** supports upgrades and confirmed downgrades.
 Installation requires the packaged edition; portable and Qt Creator builds can
-check releases. See [Release and update details](docs/RELEASE.md).
+check releases. See [Release and update details](documentation/RELEASE.md).
 
 Use **Settings > Configuration backup** to preview, export or import settings.
 The export excludes passwords and pairing identity. Imports apply on the next
 start. Back up the full profile before downgrading. See
-[Configuration backup](docs/CONFIGURATION.md).
+[Configuration backup](documentation/CONFIGURATION.md).
 
 ## Diagnostics
 
@@ -146,7 +157,7 @@ formatting text; collection continues. Pause or select text to hold a snapshot.
 The Diagnostics page can prepare a report for review, copying or saving. Optional
 local logging records redacted activity, version/health snapshots and native crash
 reports. Memory dumps are a separate opt-in and can contain private data.
-Nothing is uploaded automatically. See [Diagnostics](docs/DIAGNOSTICS.md) for
+Nothing is uploaded automatically. See [Diagnostics](documentation/DIAGNOSTICS.md) for
 file limits, redaction and crash-report limitations.
 
 The Specs page collects a cached hardware summary in the background. It includes
@@ -179,7 +190,7 @@ $build = Get-Content ./build/latest-release.json -Raw | ConvertFrom-Json
 The checkout can live in any directory. Tool locations are detected or configured
 in the ignored `release.local.json`; relative paths in that file start at this
 repository. The first build downloads dependencies. See the
-[release guide](docs/RELEASE.md) for prerequisites and Qt Creator setup.
+[release guide](documentation/RELEASE.md) for prerequisites and Qt Creator setup.
 `Build-All.cmd` builds x64 and ARM64 and requires a signing identity. On x64 it
 creates signed installers for both architectures. x64 runs its runtime tests;
 ARM64 is cross-compiled and packaged with runtime testing marked as pending.
@@ -213,7 +224,7 @@ Controls have square corners, with 36 px standard and 28 px compact heights.
 Use the compact variants in dense lists. Lists and sections use separators;
 inputs and popups have outlines. Keyboard focus uses `visualFocus` so mouse
 clicks do not leave a focus border. `GlassDialog` supplies the common prompt
-header, glass background, backdrop and `PopupMotion`, with `PromptButtons`
+header, glass background and backdrop, with `PromptButtons`
 for standard dialog actions. Pass the window's content surface as `backdropSource`.
 Keep new modal prompts in `Main.qml`'s `webModalOpen` binding so the native
 WebView2 surface stays hidden while a prompt covers it.
@@ -225,11 +236,15 @@ guards. Simple getters and setters do not need comments that repeat their names.
 
 ## Guides
 
-- [User guide](docs/USER-GUIDE.md), [Installation](docs/INSTALLATION.md)
-- [Remote access](docs/REMOTE.md), [MQTT](docs/MQTT.md), [Protocol](docs/PROTOCOL.md)
-- [Displays](docs/DISPLAYS.md), [NVIDIA](docs/NVIDIA.md), [BEACN](docs/BEACN.md)
-- [iCUE](docs/ICUE.md), [Dynamic Lighting](docs/DYNAMIC-LIGHTING.md), [Wallpaper Engine](docs/WALLPAPER_ENGINE.md)
-- [Notifications](docs/NOTIFICATIONS.md), [Input controls](docs/INPUT.md)
+- [User guide](documentation/USER-GUIDE.md), [Installation](documentation/INSTALLATION.md)
+- [Remote access](documentation/REMOTE.md), [MQTT](documentation/MQTT.md), [Protocol](documentation/PROTOCOL.md)
+- [Displays](documentation/DISPLAYS.md), [NVIDIA](documentation/NVIDIA.md), [BEACN](documentation/BEACN.md)
+- [iCUE](documentation/ICUE.md), [Dynamic Lighting](documentation/DYNAMIC-LIGHTING.md), [Wallpaper Engine](documentation/WALLPAPER_ENGINE.md)
+- [Notifications](documentation/NOTIFICATIONS.md), [Input controls](documentation/INPUT.md)
+- [Configuration and backup](documentation/CONFIGURATION.md), [Diagnostics](documentation/DIAGNOSTICS.md), [Windows security](documentation/WINDOWS-SECURITY.md)
+- [Building and releasing](documentation/RELEASE.md), [Rebuilding libraries](documentation/REBUILDING.md), [Integration contract](documentation/INTEGRATION-CONTRACT.md)
+- [WHAT logo](documentation/LOGO-ASSETS.md), [Module artwork](documentation/BRAND-ASSETS.md)
+- [Third-party notices](documentation/licenses/THIRD-PARTY.md), [Redistribution notes](documentation/REDISTRIBUTION.md)
 
 ## Planned features
 
@@ -241,8 +256,8 @@ module already provides access to your dashboard through an embedded browser.
 
 WHAT is [LGPL-3.0-or-later](LICENSE), as declared in [COPYRIGHT](COPYRIGHT).
 [COPYING.GPL-3.0](COPYING.GPL-3.0) supplies the GPL terms incorporated by LGPL v3.
-Third-party software and artwork retain their own terms; see `licenses/` and
-[artwork sources](assets/brands/README.md).
+Third-party software and artwork retain their own terms; see [component notices](documentation/licenses/THIRD-PARTY.md) and
+[artwork sources](documentation/BRAND-ASSETS.md).
 
 WHAT is an independent project. It is not affiliated with or endorsed by Microsoft,
 NVIDIA, HWiNFO/REALiX, Corsair, BEACN, the Wallpaper Engine developers or Home

@@ -21,7 +21,7 @@ Generated assets:
 - `assets/app-icon.png`: the current resting logo, used by About and installer artwork.
 - `assets/app-icon.ico`: 16, 24, 32, 48, 64, 128 and 256 px frames for the executable, title bar, taskbar and tray.
 - `assets/Logo44.png`, `Logo150.png`, `StoreLogo.png`: package/notification branding.
-- `assets/what-logo.gif`: current animation for the Windows and umbrella READMEs.
+- `assets/what-logo.gif`: current animation for the Windows README.
 - Integration `assets/what-logo.gif`: identical animation for its README.
 - Integration `custom_components/what/brand/{icon,icon@2x,logo,logo@2x}.png`: local Home Assistant branding.
 

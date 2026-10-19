@@ -13,7 +13,7 @@ a third-party Corsair component; WHAT's LGPL licence does not relicense it.
 No SDK binary is embedded in WHAT source ZIPs. The archive also supplies
 Corsair's Overview and Reference PDF under its doc directory.
 This original documentation, including its EULA, is included in binary releases
-as Corsair-SDK-Overview-and-EULA.pdf. See docs/REDISTRIBUTION.md in the source
+as Corsair-SDK-Overview-and-EULA.pdf. See documentation/REDISTRIBUTION.md in the source
 archive for distribution notes.
 
 The generated SDK helpers directory also includes the Microsoft Visual C++ x64

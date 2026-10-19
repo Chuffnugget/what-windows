@@ -3,8 +3,10 @@
 WHAT source is LGPL-3.0-or-later. This package dynamically links Qt and
 OpenSSL; users may replace these libraries and rebuild/relink WHAT. All our
 C++/QML source and build scripts are provided in the matching Source.zip release asset.
-The matching Qt source archives are published alongside each release; see REBUILDING.md. There is no
-restriction on reverse engineering for debugging modified library versions.
+The matching Qt source archives are published alongside each release. Rebuilding
+instructions are in `documentation/REBUILDING.md` in the source checkout and
+`licenses/REBUILDING.md` in binary releases. There is no restriction on reverse
+engineering for debugging modified library versions.
 
 ## Qt 6.11.2
 
@@ -18,8 +20,9 @@ https://download.qt.io/archive/qt/6.11/6.11.2/single/qt-everywhere-src-6.11.2.ta
 Individual module archives are also available at:
 https://download.qt.io/archive/qt/6.11/6.11.2/submodules/
 
-The directories beside this file preserve Qt's licence texts and embedded
-third-party copyright/licence notices. `qt_attribution.json` files identify
+The source tree preserves Qt's licence texts and embedded third-party notices
+under `licenses/` and `documentation/licenses/`. Binary releases combine them
+under `licenses/`. `qt_attribution.json` files identify
 third-party packages and their terms. The supplied upstream module SBOMs are
 broader than this application's deployed subset and include source/build
 components not used at runtime. Example programs, test fixtures and Qt licence-

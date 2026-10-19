@@ -5,7 +5,7 @@ function Find-Tool([string]$Name, [string[]]$Candidates) {
     foreach ($candidate in $Candidates) { if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Leaf)) { return (Resolve-Path -LiteralPath $candidate).Path } }
     $command = Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($command) { return $command.Source }
-    throw "Cannot find $Name. See docs/RELEASE.md for prerequisites or set its path in release.local.json."
+    throw "Cannot find $Name. See documentation/RELEASE.md for prerequisites or set its path in release.local.json."
 }
 function Read-Configuration {
     $config = @{}
@@ -187,7 +187,7 @@ function Get-SourceHashes {
     # path for the root before removing it from each file's path.
     $sourceRoot = (Get-Item -LiteralPath $script:ProjectRoot).FullName.TrimEnd('\','/')
     $files = @(Get-Item (Join-Path $sourceRoot 'CMakeLists.txt'))
-    foreach ($dir in @('src','qml','assets','tests','tools','scripts','packaging','licenses','docs')) { $files += @(Get-ChildItem -LiteralPath (Join-Path $sourceRoot $dir) -File -Recurse) }
+    foreach ($dir in @('src','qml','assets','tests','tools','scripts','packaging','licenses','documentation')) { $files += @(Get-ChildItem -LiteralPath (Join-Path $sourceRoot $dir) -File -Recurse) }
     foreach ($file in ($files | Sort-Object FullName)) {
         $relative = $file.FullName.Substring($sourceRoot.Length + 1).Replace('\','/')
         # Python imports may populate these after compilation. They are neither

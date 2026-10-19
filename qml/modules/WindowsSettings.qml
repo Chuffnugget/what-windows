@@ -225,7 +225,7 @@ ModuleCard {
         }
 
         HintLabel {
-            text: "Controls and saved layouts appear in the sensor browser. Display changes apply immediately with no confirmation or automatic rollback. Disconnect removes a screen from the desktop; it does not turn its power off. See docs/DISPLAYS.md for setup and Home Assistant automation examples."
+            text: "Controls and saved layouts appear in the sensor browser. Display changes apply immediately with no confirmation or automatic rollback. Disconnect removes a screen from the desktop; it does not turn its power off. See documentation/DISPLAYS.md for setup and Home Assistant automation examples."
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
         }

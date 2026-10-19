@@ -80,17 +80,19 @@ Write-Output 'PASS: project-relative configuration, absolute overrides and defau
 # A clean CI checkout imports the bundled integration during runtime tests.
 # Those imports must not change the release fingerprint or enter Source.zip.
 $sourceFixture = Join-Path $OutputDirectory 'source-fixture'
-foreach ($name in @('src','qml','assets','tests','tools','scripts','packaging','licenses','docs','.github')) {
+foreach ($name in @('src','qml','assets','tests','tools','scripts','packaging','licenses','documentation','.github')) {
     New-Item -ItemType Directory -Path "$sourceFixture/$name" -Force | Out-Null
 }
 Set-Content "$sourceFixture/CMakeLists.txt" 'project(WHAT VERSION 0.1.0)'
 Set-Content "$sourceFixture/src/app.cpp" 'int main() { return 0; }'
 Set-Content "$sourceFixture/tests/contract.py" 'VALUE = 1'
+Set-Content "$sourceFixture/documentation/GUIDE.md" '# Release guide'
 Copy-Item -LiteralPath "$root/scripts/Release.Common.ps1","$root/scripts/Write-SourceArchive.ps1" -Destination "$sourceFixture/scripts"
 try {
     $script:ProjectRoot = $sourceFixture
     $before = Get-SourceHashes
     if (!$before.Contains('src/app.cpp')) { throw 'Source paths must be relative to the fixture root.' }
+    if (!$before.Contains('documentation/GUIDE.md')) { throw 'Documentation is missing from the release fingerprint.' }
     New-Item -ItemType Directory -Path "$sourceFixture/tests/__pycache__" | Out-Null
     foreach ($name in @('tests/__pycache__/contract.cpython-312.pyc', 'tests/__pycache__/cache-metadata',
         'tests/contract.pyc', 'tests/contract.pyo')) {
@@ -109,6 +111,9 @@ try {
         $names = @($archive.Entries | ForEach-Object FullName)
         if ($names -notcontains 'tests/contract.py' -or $names -notcontains 'src/app.cpp') {
             throw 'Source archive omitted actual source files.'
+        }
+        if ($names -notcontains 'documentation/GUIDE.md') {
+            throw 'Source archive omitted the documentation directory.'
         }
         if ($names | Where-Object { $_ -match '__pycache__|\.(pyc|pyo)$' }) {
             throw 'Source archive contains Python caches.'
@@ -136,6 +141,34 @@ try {
     if ((Get-SourceHashes).Contains('tests/contract.py')) { throw 'A deleted source file remains in the fingerprint.' }
 } finally { $script:ProjectRoot = $originalProjectRoot }
 Write-Output 'PASS: Python caches excluded from release hashes and source archive; real source changes retained.'
+
+# Documentation moves must not remove third-party notices from portable/MSIX builds.
+& {
+    $ProjectRoot = $root
+    $runtime = Join-Path $OutputDirectory 'licence staging'
+    New-Item -ItemType Directory -Path $runtime -Force | Out-Null
+    $tokens = $null
+    $errors = $null
+    $ast = [Management.Automation.Language.Parser]::ParseFile("$root/scripts/Build-Release.ps1", [ref]$tokens, [ref]$errors)
+    $copySteps = @($ast.FindAll({ param($node)
+        $node -is [Management.Automation.Language.PipelineAst] -and
+        ($node.Extent.Text.StartsWith('Copy-Item -LiteralPath "$ProjectRoot/licenses"') -or
+         $node.Extent.Text.StartsWith('Get-ChildItem -LiteralPath "$ProjectRoot/documentation/licenses"'))
+    }, $true))
+    if ($copySteps.Count -ne 2) { throw 'Expected both source licence directories in runtime staging.' }
+    foreach ($step in $copySteps) { & ([scriptblock]::Create($step.Extent.Text)) }
+    foreach ($sourceRoot in @("$root/licenses", "$root/documentation/licenses")) {
+        foreach ($file in Get-ChildItem -LiteralPath $sourceRoot -Recurse -File) {
+            $relative = $file.FullName.Substring($sourceRoot.Length + 1)
+            $deployed = Join-Path "$runtime/licenses" $relative
+            if (!(Test-Path -LiteralPath $deployed) -or
+                (Get-FileHash -LiteralPath $deployed).Hash -ne (Get-FileHash -LiteralPath $file.FullName).Hash) {
+                throw "Runtime licence notice missing or changed: $relative"
+            }
+        }
+    }
+}
+Write-Output 'PASS: all licence notices retained when staging from documentation and licenses.'
 
 function Invoke-Checked { throw 'A missing identity must fail before invoking a signing tool.' }
 foreach($config in @(@{},@{Publisher='CN=Fixture';SigningPfx="$OutputDirectory/missing.pfx";SigningCertificate="$OutputDirectory/missing.cer"})){

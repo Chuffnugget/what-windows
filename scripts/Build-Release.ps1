@@ -74,8 +74,9 @@ try {
     foreach ($dll in @("libcrypto-3-$Architecture.dll","libssl-3-$Architecture.dll")) { Copy-Item -LiteralPath "$($tools.OpenSSLRoot)/bin/$dll" -Destination $runtime -Force }
     foreach ($name in @('LICENSE','COPYING.GPL-3.0','COPYRIGHT')) { Copy-Item -LiteralPath "$ProjectRoot/$name" -Destination $runtime }
     Copy-Item -LiteralPath "$ProjectRoot/licenses" -Destination $runtime -Recurse
+    Get-ChildItem -LiteralPath "$ProjectRoot/documentation/licenses" | Copy-Item -Destination "$runtime/licenses" -Recurse -Force
     if ($Architecture -eq 'x64') { Copy-Item -LiteralPath "$ProjectRoot/build/dependencies/icue-4.0.84/iCUESDK/doc/iCUE SDK - Overview and Reference.pdf" -Destination "$runtime/licenses/Corsair-SDK-Overview-and-EULA.pdf" }
-    Copy-Item -LiteralPath "$ProjectRoot/docs/REBUILDING.md" -Destination "$runtime/licenses/REBUILDING.md"
+    Copy-Item -LiteralPath "$ProjectRoot/documentation/REBUILDING.md" -Destination "$runtime/licenses/REBUILDING.md"
     Copy-Item -LiteralPath "$build/_deps/webview2-src/LICENSE.txt" -Destination "$runtime/licenses/WebView2-SDK-LICENSE.txt"
     Copy-Item -LiteralPath "$build/_deps/webview2-src/NOTICE.txt" -Destination "$runtime/licenses/WebView2-SDK-NOTICE.txt"
     & "$PSScriptRoot/Write-DependencyInventory.ps1" -Runtime $runtime -Tools $tools

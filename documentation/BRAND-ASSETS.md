@@ -1,6 +1,8 @@
 # Module brand artwork
 
-These marks identify the corresponding third-party products. They remain the trademarks of their respective owners; inclusion does not imply endorsement. They are bundled locally and require no runtime network requests.
+The artwork in `assets/brands/` identifies the corresponding third-party products.
+The marks remain the trademarks of their respective owners; inclusion does not
+imply endorsement. They are bundled locally and require no runtime network requests.
 
 - Corsair: Simple Icons v11, https://cdn.jsdelivr.net/npm/simple-icons@11/icons/corsair.svg (white variant). Official brand reference: https://www.corsair.com/newsroom/company-logos
 - Windows 11: Simple Icons v11, https://cdn.jsdelivr.net/npm/simple-icons@11/icons/windows11.svg (Windows blue).
