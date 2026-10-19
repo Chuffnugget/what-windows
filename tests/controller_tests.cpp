@@ -422,8 +422,18 @@ private slots:
         frame["_cleanup_installation"] = QString(32, 'b');
         frame["entity_cleanup"] = QJsonObject{{"id", "preview"}, {"operation", "preview"}, {"token", ""}};
         service.replaceSnapshot(frame);
-        QTRY_VERIFY(has(1, "delta") || has(1, "snapshot"));
-        QTRY_VERIFY(has(2, "delta") || has(2, "snapshot"));
+        // Revoking the first peer can leave an older frame in flight. Wait for
+        // this reading revision before checking where its cleanup request went.
+        auto hasUpdatedReading = [&](int peer) {
+            for (const auto &message : received[peer])
+                for (const auto &reading : message["sensors"].toArray())
+                    if (reading.toObject()["id"] == "fixture-reading"
+                        && reading.toObject()["value"] == 2)
+                        return true;
+            return false;
+        };
+        QTRY_VERIFY(hasUpdatedReading(1));
+        QTRY_VERIFY(hasUpdatedReading(2));
         bool targeted = false;
         for (const auto &item : received[1]) {
             QVERIFY(!item.contains("_cleanup_installation"));
@@ -5243,9 +5253,9 @@ private slots:
         QVERIFY(beforeClose > 0 && beforeClose < 1);
         QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
         QCOMPARE(motion->property("progress").toDouble(), beforeClose);
-        QTest::qWait(40);
+        // A software-rendered CI frame can take longer than 40 ms.
+        QTRY_VERIFY(motion->property("progress").toDouble() < beforeClose);
         const auto beforeReopen = motion->property("progress").toDouble();
-        QVERIFY(beforeReopen < beforeClose);
         QVERIFY(QMetaObject::invokeMethod(dialog, "open"));
         QCOMPARE(motion->property("progress").toDouble(), beforeReopen);
         QTRY_VERIFY(dialog->property("opened").toBool());
@@ -5438,8 +5448,18 @@ private slots:
         QTRY_COMPARE(window->property("status").toMap()["transitionStyle"].toString(), QString("standard"));
         auto *dialog = window->findChild<QObject *>("uiTimingDialog");
         QVERIFY(dialog);
+        auto *dialogContent = dialog->property("contentItem").value<QQuickItem *>();
+        QVERIFY(dialogContent && dialogContent->parentItem());
+        bool sawVisibleScale = false;
+        QObject scaleObserver;
+        // A slow renderer can finish and reset a popup between polling attempts.
+        // Observe its actual scale changes while it is still visible.
+        connect(dialogContent->parentItem(), &QQuickItem::scaleChanged, &scaleObserver, [&] {
+            const auto scale = dialog->property("scale").toDouble();
+            sawVisibleScale |= dialog->property("visible").toBool() && scale > 0.94 && scale < 1;
+        });
         QVERIFY(QMetaObject::invokeMethod(dialog, "open"));
-        QTRY_VERIFY(dialog->property("scale").toDouble() > 0.94 && dialog->property("scale").toDouble() < 1);
+        QTRY_VERIFY(sawVisibleScale);
         // Modal overlays are visually parented to the window, not QObject children of it.
         std::function<QQuickItem *(QQuickItem *, const QString &)> findItem =
             [&](QQuickItem *item, const QString &name) -> QQuickItem * {
@@ -5470,9 +5490,9 @@ private slots:
         QTRY_VERIFY(reset->mapToItem(flick, QPointF(0, reset->height())).y() <= flick->height() + 1);
         if (!qEnvironmentVariableIsEmpty("WHAT_TIMING_PREVIEW"))
             QVERIFY(window->grabWindow().save(qEnvironmentVariable("WHAT_TIMING_PREVIEW") + ".scrolled.png"));
+        sawVisibleScale = false;
         QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
-        QTRY_VERIFY(dialog->property("scale").toDouble() < 1);
-        QVERIFY(dialog->property("visible").toBool());
+        QTRY_VERIFY(sawVisibleScale);
         QTRY_VERIFY(!dialog->property("visible").toBool());
         local.setAnimationsEnabled(false);
         QVERIFY(QMetaObject::invokeMethod(dialog, "open"));
@@ -7741,18 +7761,39 @@ private slots:
         };
         for (int width : {1250, 820}) {
             window->resize(width, 850);
-            QTest::qWait(100);
-            int visible = 0, delegates = 0;
+            QVERIFY(!window->grabWindow().isNull()); // Complete layout for the resized window.
+            QVERIFY(QMetaObject::invokeMethod(list, "forceLayout"));
+            // Windows can clamp this window to the runner's smaller desktop.
+            // Check full viewport coverage using the fixture's 30/32 px rows.
+            int expectedVisible = 0;
+            qreal bottom = 0;
+            for (const auto &row : rows) {
+                bottom += row.toMap()["header"].toBool() ? 32 : 30;
+                if (bottom > list->height())
+                    break;
+                ++expectedVisible;
+            }
+            QVERIFY(expectedVisible > 0);
+            const auto visibleRowCount = [&] {
+                int count = 0;
+                const auto top = list->property("contentY").toReal();
+                for (auto *item : content->childItems()) {
+                    if (item->property("modelData").isValid() && !item->property("pooled").toBool()
+                        && item->y() >= top && item->y() + item->height() <= top + list->height())
+                        ++count;
+                }
+                return count;
+            };
+            QTRY_COMPARE(visibleRowCount(), expectedVisible);
+            int delegates = 0;
             for (auto *item : content->childItems()) {
                 if (!item->property("modelData").isValid())
                     continue;
                 ++delegates;
-                if (item->y() >= 0 && item->y() + item->height() <= list->height())
-                    ++visible;
             }
-            QVERIFY2(visible >= 22, qPrintable(QString("Only %1 rows visible").arg(visible)));
             QVERIFY(delegates < 55); // The other 3,000 readings must not create controls.
             for (int index : {0, 1, 13, 14}) {
+                QVERIFY(rowAt(index));
                 auto *badge = visualItem(rowAt(index), "sensorWritability");
                 QVERIFY(badge);
                 QCOMPARE(badge->property("text").toString(),
@@ -7858,6 +7899,9 @@ private slots:
             auto *loader = visualItem(item, "sensorDetailLoader");
             QVERIFY(loader && !loader->property("active").toBool());
         }
+        // Scrolling starts asynchronous creation of the next cached rows.
+        if (auto *incubation = engine.incubationController())
+            QTRY_COMPARE_WITH_TIMEOUT(incubation->incubatingObjectCount(), 0, 5000);
         window->hide();
     }
 
@@ -10647,6 +10691,10 @@ private slots:
         QTRY_VERIFY(!editor || !editor->isEnabled());
         local.setIcueOption("automation", false);
         QVERIFY(local.icueLightingRow("icue_lighting_control_Color1").isEmpty());
+        // Disabling the module rebuilds the browser, including its cached rows.
+        QTRY_VERIFY(!local.browserJob.isRunning() && !local.browserSearchJob.isRunning());
+        if (auto *incubation = engine.incubationController())
+            QTRY_COMPARE_WITH_TIMEOUT(incubation->incubatingObjectCount(), 0, 5000);
         window->hide();
     }
 
@@ -10780,6 +10828,9 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(automation, "toggled", Q_ARG(bool, false)));
         QVERIFY(!local.icueAutomationEnabled());
         QVERIFY(local.browser().isEmpty());
+        QTRY_VERIFY(!local.browserJob.isRunning() && !local.browserSearchJob.isRunning());
+        if (auto *incubation = engine.incubationController())
+            QTRY_COMPARE_WITH_TIMEOUT(incubation->incubatingObjectCount(), 0, 5000);
         window->hide();
     }
 

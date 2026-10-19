@@ -89,6 +89,9 @@ ColumnLayout {
         Layout.minimumHeight: 100
         clip: true
         reuseItems: true
+        // Command results replace this model. Avoid cancelling partially built
+        // off-screen controls when a running command completes (Qt 6.11).
+        cacheBuffer: 0
         boundsBehavior: Flickable.StopAtBounds
         property FastWheel mouseWheel: FastWheel {
             parent: commands
