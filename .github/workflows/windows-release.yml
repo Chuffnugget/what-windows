@@ -1,19 +1,22 @@
 name: Windows build and release
 on:
   push:
+    branches: [main]
     tags: ['v*']
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 concurrency:
-  group: windows-${{ github.ref }}
-  cancel-in-progress: false
+  group: windows-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   build:
     runs-on: windows-2022
-    timeout-minutes: 60
+    timeout-minutes: 90
     permissions:
       contents: write
     environment: ${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}
@@ -21,7 +24,7 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
       - name: Locate Windows project
@@ -41,15 +44,15 @@ jobs:
         run: |
           ./tests/release-policy-tests.ps1
           ./tests/release-upload-tests.ps1
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         id: qt-cache
         with:
           path: ${{ runner.temp }}/what-qt
-          key: windows-qt-6.11.2-msvc2022-openssl3-websockets-shadertools-v2
-      - name: Install Qt 6.11.2 MSVC and OpenSSL
+          key: windows-qt-6.11.2-msvc2022-x64-arm64-openssl3-websockets-shadertools-v3
+      - name: Install Qt 6.11.2 x64 and ARM64 kits
         if: steps.qt-cache.outputs.cache-hit != 'true'
         run: |
           # Use the runner's 7-Zip to avoid py7zr's Windows extraction failures.
@@ -57,17 +60,23 @@ jobs:
           if (!(Test-Path -LiteralPath $sevenZip -PathType Leaf)) { throw 'The runner is missing 7-Zip.' }
           python -m pip install aqtinstall==3.3.0 py7zr==1.1.3
           if ($LASTEXITCODE -ne 0) { throw 'Could not install Qt downloader' }
-          python scripts/aqt_qt611.py --config scripts/aqt-ci.ini install-qt windows desktop 6.11.2 win64_msvc2022_64 -m qtwebsockets qtshadertools --external "$sevenZip" --outputdir "$env:RUNNER_TEMP/what-qt"
-          if ($LASTEXITCODE -ne 0) { throw 'Qt 6.11.2 installation failed' }
+          foreach ($architecture in @('win64_msvc2022_64', 'win64_msvc2022_arm64_cross_compiled')) {
+            python scripts/aqt_qt611.py --config scripts/aqt-ci.ini install-qt windows desktop 6.11.2 $architecture -m qtwebsockets qtshadertools --external "$sevenZip" --outputdir "$env:RUNNER_TEMP/what-qt"
+            if ($LASTEXITCODE -ne 0) { throw "Qt 6.11.2 installation failed: $architecture" }
+          }
           python -m aqt --config scripts/aqt-ci.ini install-tool windows desktop tools_opensslv3_x64 --external "$sevenZip" --outputdir "$env:RUNNER_TEMP/what-qt"
           if ($LASTEXITCODE -ne 0) { throw 'OpenSSL installation failed' }
           python -m aqt --config scripts/aqt-ci.ini install-tool windows desktop tools_ninja --external "$sevenZip" --outputdir "$env:RUNNER_TEMP/what-qt"
           if ($LASTEXITCODE -ne 0) { throw 'Ninja installation failed' }
-      - name: Verify Qt kit
+      - name: Verify Qt kits
         run: |
           $qt = "$env:RUNNER_TEMP/what-qt/6.11.2/msvc2022_64"
           $version = & "$qt/bin/qmake.exe" -query QT_VERSION
           if ($LASTEXITCODE -ne 0 -or $version.Trim() -ne '6.11.2') { throw 'Expected Qt 6.11.2' }
+          $armQt = "$env:RUNNER_TEMP/what-qt/6.11.2/msvc2022_arm64"
+          $version = & "$armQt/bin/host-qmake.bat" -query QT_VERSION
+          if ($LASTEXITCODE -ne 0 -or $version.Trim() -ne '6.11.2') { throw 'Expected Qt 6.11.2 ARM64 with working x64 host tools' }
+          if ((Get-Content "$armQt/mkspecs/qconfig.pri" -Raw) -notmatch 'QT_ARCH\s*=\s*arm64') { throw 'Expected the ARM64 target kit' }
           "QT_ROOT_DIR=$qt" >> $env:GITHUB_ENV
           "IQTA_TOOLS=$env:RUNNER_TEMP/what-qt/Tools" >> $env:GITHUB_ENV
       - name: Configure CI tool paths
@@ -77,22 +86,41 @@ jobs:
           $config | ConvertTo-Json | Set-Content "$env:PROJECT_DIR/release.local.json"
           Set-Location $env:PROJECT_DIR
           . ./scripts/Release.Common.ps1
-      - name: Build and test Release
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: build/dependencies/openssl-arm64
+          key: windows-2022-openssl-arm64-msvc14.44-${{ hashFiles('scripts/Prepare-Arm64OpenSSL.ps1') }}
+      - name: Prepare ARM64 OpenSSL and verify toolchains
+        run: |
+          . ./scripts/Release.Common.ps1
+          $config = Read-Configuration
+          foreach ($architecture in @('x64', 'arm64')) {
+            $tools = Get-ReleaseTools $config $architecture -PrepareDependencies
+            Write-Host "$architecture compiler: $($tools.CompilerVersion); Qt: $($tools.Qt)"
+          }
+      - name: Build and test x64 Release
         run: |
           Set-Location $env:PROJECT_DIR
-          ./scripts/Build-Release.ps1
-      - name: Prepare portable and source artifacts
+          ./scripts/Build-Release.ps1 -Architecture x64
+      - name: Cross-compile and verify ARM64 Release
         run: |
-          $state = Get-Content "$env:PROJECT_DIR/build/latest-release.json" -Raw | ConvertFrom-Json
+          Set-Location $env:PROJECT_DIR
+          ./scripts/Build-Release.ps1 -Architecture arm64
+      - name: Prepare portable and source artifacts
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+        run: |
           $artifacts = Join-Path $env:RUNNER_TEMP 'public-artifacts'
           New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
           "ARTIFACT_DIR=$artifacts" >> $env:GITHUB_ENV
           Add-Type -AssemblyName System.IO.Compression.FileSystem
-          [IO.Compression.ZipFile]::CreateFromDirectory($state.runtime,"$artifacts/WHAT-$($state.version)-Windows-x64-Portable.zip")
+          foreach ($stateFile in @('latest-release.json', 'latest-release-arm64.json')) {
+            $state = Get-Content "$env:PROJECT_DIR/build/$stateFile" -Raw | ConvertFrom-Json
+            [IO.Compression.ZipFile]::CreateFromDirectory($state.runtime,"$artifacts/WHAT-$($state.version)-Windows-$($state.architecture)-Portable.zip")
+          }
           & "$env:PROJECT_DIR/scripts/Write-SourceArchive.ps1" -Destination "$artifacts/WHAT-$($state.version)-Source.zip"
           & "$env:PROJECT_DIR/scripts/Prepare-CorrespondingSource.ps1" -Runtime $state.runtime -Destination $artifacts
-      - name: Sign installer and updater assets
-        timeout-minutes: 20
+      - name: Sign x64 and ARM64 installer and updater assets
+        timeout-minutes: 30
         if: startsWith(github.ref, 'refs/tags/')
         env:
           SIGNING_PFX_BASE64: ${{ secrets.SIGNING_PFX_BASE64 }}
@@ -139,12 +167,16 @@ jobs:
             } finally { $publisherCertificate.Dispose() }
             Set-Location $env:PROJECT_DIR
             Write-Host "Temporary trust is ready; building and signing installers."
-            ./scripts/Build-Installers.ps1
-            $result = Get-Content build/latest-installers.json -Raw | ConvertFrom-Json
-            Write-Host "Installers built; validating updater signatures and handoff."
-            ./tests/update-helper-tests.ps1 -PackagePath $result.updatePackage -CertificatePath "$private/publisher.cer"
-            if ($LASTEXITCODE -ne 0) { throw 'Updater helper validation failed' }
-            Copy-Item -LiteralPath $result.installer,$result.updatePackage,$result.updateManifest,$result.portable -Destination $env:ARTIFACT_DIR -Force
+            . ./scripts/Release.Common.ps1
+            foreach ($architecture in @('x64', 'arm64')) {
+              ./scripts/Build-Installers.ps1 -Architecture $architecture
+              $suffix = if ($architecture -eq 'x64') { '' } else { '-arm64' }
+              $result = Get-Content "build/latest-installers$suffix.json" -Raw | ConvertFrom-Json
+              Write-Host "$architecture installers built; validating updater signatures and handoff."
+              # Each fixture defines mock Windows APIs and needs a fresh process.
+              Invoke-Checked (Get-Command powershell.exe).Source @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', './tests/update-helper-tests.ps1', '-PackagePath', $result.updatePackage, '-CertificatePath', "$private/publisher.cer")
+              Copy-Item -LiteralPath $result.installer,$result.updatePackage,$result.updateManifest,$result.portable -Destination $env:ARTIFACT_DIR -Force
+            }
           } finally {
             try {
               if ($temporaryTrust) { Remove-Item -LiteralPath $temporaryTrust -ErrorAction Stop }
@@ -161,17 +193,19 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_REPOSITORY: ${{ github.repository }}
         run: ./scripts/Publish-Release.ps1 -ArtifactDirectory $env:ARTIFACT_DIR -Tag $env:RELEASE_TAG -Repository $env:RELEASE_REPOSITORY
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.event_name == 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/')
         continue-on-error: true
         with:
           name: windows-distribution
           path: ${{ env.ARTIFACT_DIR }}/*
           if-no-files-found: error
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+          retention-days: 5
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         continue-on-error: true
         with:
           name: windows-build-logs
           path: ${{ env.PROJECT_DIR }}/build/logs/**/*.txt
           if-no-files-found: ignore
+          retention-days: 7

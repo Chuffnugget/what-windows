@@ -6,14 +6,18 @@ $testRoot = Join-Path $env:TEMP ('WHAT-update-test-' + [guid]::NewGuid().ToStrin
 New-Item -ItemType Directory -Path $testRoot | Out-Null
 $archive = [IO.Compression.ZipFile]::OpenRead($PackagePath)
 $manifestReader = [IO.StreamReader]::new($archive.GetEntry('AppxManifest.xml').Open())
-try { $targetVersion = [version]([xml]$manifestReader.ReadToEnd()).Package.Identity.Version } finally { $manifestReader.Dispose() }
+try {
+    $identity = ([xml]$manifestReader.ReadToEnd()).Package.Identity
+    $targetVersion = [version]$identity.Version
+    $global:whatTestArchitecture = [string]$identity.ProcessorArchitecture
+} finally { $manifestReader.Dispose() }
 try { [IO.Compression.ZipFileExtensions]::ExtractToFile($archive.GetEntry('AppxSignature.p7x'), (Join-Path $testRoot 'AppxSignature.p7x')) } finally { $archive.Dispose() }
 $global:whatTestCertificate = New-Object Security.Cryptography.X509Certificates.X509Certificate2($CertificatePath)
 $global:whatTestTrusted = $true
 $global:whatTestPublisher = $global:whatTestCertificate.Subject
 $global:whatTestVersion = '0.0.0.0'
 # Mock only the Windows installation/trust boundary: never install or trust anything.
-function Get-AppxPackage { param($Name) [pscustomobject]@{ Name='WHAT.Desktop'; PackageFamilyName='WHAT.Desktop_test'; Publisher=$global:whatTestPublisher; Version=$global:whatTestVersion; Architecture='x64'; InstallLocation=$testRoot } }
+function Get-AppxPackage { param($Name) [pscustomobject]@{ Name='WHAT.Desktop'; PackageFamilyName='WHAT.Desktop_test'; Publisher=$global:whatTestPublisher; Version=$global:whatTestVersion; Architecture=$global:whatTestArchitecture; InstallLocation=$testRoot } }
 function Get-AuthenticodeSignature { param($LiteralPath) [pscustomobject]@{ Status=$(if($global:whatTestTrusted){'Valid'}else{'NotTrusted'}); SignerCertificate=$global:whatTestCertificate } }
 function Add-AppxPackage { throw 'TEST FAILURE: installer must never run in validation mode' }
 $helper = Join-Path (Split-Path $PSScriptRoot) 'scripts/Apply-Update.ps1'
@@ -24,6 +28,11 @@ Copy-Item -LiteralPath $PackagePath -Destination "$testRoot/update.msix"
 $argsForHelper.PackagePath = "$testRoot/update.msix"
 & $helper @argsForHelper
 if ($LASTEXITCODE -ne 0) { throw 'Valid package failed validation' }
+$packageArchitecture = $global:whatTestArchitecture
+$global:whatTestArchitecture = if ($packageArchitecture -eq 'x64') { 'arm64' } else { 'x64' }
+& $helper @argsForHelper
+if ($LASTEXITCODE -ne 1) { throw 'Package for a different architecture was accepted' }
+$global:whatTestArchitecture = $packageArchitecture
 $global:whatTestTrusted = $false
 & $helper @argsForHelper
 if ($LASTEXITCODE -ne 1) { throw 'Untrusted package was accepted' }

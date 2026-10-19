@@ -242,15 +242,37 @@ beta payloads. Turning beta updates off does not remove an installed beta.
 ## GitHub release workflow
 
 The workflow is in this repository's `.github/workflows/windows-release.yml`.
-It runs on version tags or manual dispatch, not ordinary commits. Debug, local
-Release and CI use Qt 6.11.2 MSVC2022 x64. CI uses the pinned aqt installer and
-`scripts/aqt_qt611.py` to locate this Qt kit. Qt, OpenSSL and Ninja archives are
+It runs on pushes to `main`, pull requests targeting `main`, version tags and
+manual dispatch. CI builds both x64 and ARM64 with Qt 6.11.2 MSVC2022. The x64
+build runs its tests; ARM64 is cross-compiled and its runtime remains untested.
+CI uses the pinned aqt installer and `scripts/aqt_qt611.py` to locate both kits.
+Qt, x64 OpenSSL and Ninja archives are
 extracted with the runner's existing 7-Zip through aqt's `--external` option.
 `scripts/aqt-ci.ini` limits installation to one worker because parallel extraction
 can fail when archives create the same directory on Windows. aqt still verifies
 the archive checksums.
 
-A tag build tests and packages the app, then uploads directly to a draft Release.
+The x64 kit supplies the host tools for ARM64. CI uses the same ARM64 OpenSSL
+preparation script as local Build-All and caches the resulting dependency.
+
+Repository settings are separate from Git. When moving to a new repository,
+create an empty `ci` environment and a `release` environment restricted to tags
+matching `v*`. Set these values in `release`, using the existing signing identity:
+
+| Type | Name | Value |
+| --- | --- | --- |
+| Secret | `SIGNING_PFX_BASE64` | Base64 of the existing password-protected PFX |
+| Secret | `SIGNING_CER_BASE64` | Base64 of its matching public certificate |
+| Secret | `SIGNING_PFX_PASSWORD` | The PFX password |
+| Variable | `SIGNING_PUBLISHER` | `CN=WHAT` |
+
+Never commit these values or create a replacement identity for a repository move.
+No personal access token is needed. The workflow uses GitHub's automatic token
+and declares its required release permissions. GitHub Free supports environment
+secrets in public repositories only; making a repository private changes their
+availability. Keep Actions enabled and allow the pinned actions in the workflow.
+
+A tag build packages both architectures, then uploads them together to a draft Release.
 `scripts/Publish-Release.ps1` checks the exact asset set, sizes and SHA-256 hashes
 before publication. It finds drafts with `gh release view`, then lists assets
 using the release's numeric ID. GitHub's REST release-by-tag endpoint only returns
@@ -258,8 +280,10 @@ published releases. The script can resume a draft but refuses to overwrite a
 published release. Beta tags publish as prereleases and do not replace the stable
 Latest release.
 
-Tag releases do not depend on Actions artifact storage. Manual-run distribution
-uploads and diagnostic log uploads are optional, so an artifact-quota failure
+Tag releases do not depend on Actions artifact storage. Normal push and pull
+request runs build and test without signing or publishing. Manual branch runs
+also prepare portable and source archives, retained for five days. Diagnostic
+logs are retained for seven days. These artifact uploads are optional, so a quota failure
 does not fail an otherwise successful build. Build and test failures still stop
 publication. The local build scripts never publish.
 
