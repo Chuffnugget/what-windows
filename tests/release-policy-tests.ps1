@@ -90,6 +90,7 @@ Copy-Item -LiteralPath "$root/scripts/Release.Common.ps1","$root/scripts/Write-S
 try {
     $script:ProjectRoot = $sourceFixture
     $before = Get-SourceHashes
+    if (!$before.Contains('src/app.cpp')) { throw 'Source paths must be relative to the fixture root.' }
     New-Item -ItemType Directory -Path "$sourceFixture/tests/__pycache__" | Out-Null
     foreach ($name in @('tests/__pycache__/contract.cpython-312.pyc', 'tests/__pycache__/cache-metadata',
         'tests/contract.pyc', 'tests/contract.pyo')) {
@@ -115,9 +116,20 @@ try {
     } finally { $archive.Dispose() }
 
     Add-Content "$sourceFixture/src/app.cpp" '// changed'
-    if ((Get-SourceHashes)['src/app.cpp'] -eq $before['src/app.cpp']) {
-        throw 'An edited source file was ignored.'
+    $editedHash = (Get-FileHash -LiteralPath "$sourceFixture/src/app.cpp" -Algorithm SHA256).Hash
+    $sourceRoots = @($sourceFixture, "$sourceFixture\")
+    # GitHub's TEMP can use an 8.3 alias; Resolve-Path leaves that alias intact.
+    $shortRoot = (New-Object -ComObject Scripting.FileSystemObject).GetFolder($sourceFixture).ShortPath
+    if ($shortRoot -ne $sourceFixture) { $sourceRoots += $shortRoot }
+    foreach ($sourceRoot in $sourceRoots) {
+        $script:ProjectRoot = $sourceRoot
+        $edited = Get-SourceHashes
+        if (!$edited.Contains('src/app.cpp') -or $edited['src/app.cpp'] -ne $editedHash -or
+            $edited['src/app.cpp'] -eq $before['src/app.cpp']) {
+            throw "An edited source file was ignored or misnamed under root: $sourceRoot"
+        }
     }
+    $script:ProjectRoot = $sourceFixture
     Set-Content "$sourceFixture/src/added.cpp" '// new source'
     if (!(Get-SourceHashes).Contains('src/added.cpp')) { throw 'An added source file was ignored.' }
     Remove-Item -LiteralPath "$sourceFixture/tests/contract.py"
