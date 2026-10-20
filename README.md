@@ -37,6 +37,8 @@ which readings and controls each can access.
 
 [Home Assistant integration](https://github.com/Chuffnugget/what-integration#readme) - install alongside this Windows app.
 
+![WHAT Overview showing Home Assistant connectivity, shared sensors and module status](documentation/images/what-overview.png)
+
 This repository contains the Windows application. It targets Windows 11 x64 and
 native ARM64. ARM64 support is awaiting hardware validation and has a smaller
 supported module set. See [building for ARM64](documentation/RELEASE.md#native-windows-arm64).
