@@ -11526,10 +11526,12 @@ private slots:
                 id: window
                 required property var controller
                 width: 640; height: 180; visible: true
+                maximumWidth: 1028
                 HaEntityDetails {
+                    objectName: "entityDetails"
+                    width: 640
                     anchors.top: parent.top
                     anchors.left: parent.left
-                    anchors.right: parent.right
                     controller: window.controller
                     row: ({ id: "fixture" })
                 }
@@ -11539,6 +11541,8 @@ private slots:
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
         QVERIFY(window);
         QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *details = window->findChild<QQuickItem *>("entityDetails");
+        QVERIFY(details);
         emit local.server.entityLookupResult("fixture", {"sensor.my_actual_renamed_temperature"}, "");
         QTRY_VERIFY(visualItem(window->contentItem(), "haEntityCopy"));
         auto *copy = visualItem(window->contentItem(), "haEntityCopy");
@@ -11547,9 +11551,15 @@ private slots:
         QVERIFY(entityText);
         QVERIFY(copyLabel);
         // The confirmation must keep its own right-hand space even when the ID wraps.
-        for (int width : {280, 1280}) {
-            window->setWidth(width);
+        // Size the component directly: Windows can cap native window sizes on
+        // small CI desktops, but the wide layout must still be tested at 1280 px.
+        for (int width : {280, 1028, 1280}) {
+            details->setWidth(width);
             QTRY_COMPARE(copy->width(), qreal(width));
+            if (width == 280)
+                QTRY_VERIFY(entityText->property("lineCount").toInt() > 1);
+            else
+                QTRY_COMPARE(entityText->property("lineCount").toInt(), 1);
             QTRY_VERIFY(entityText->x() + entityText->width() < copyLabel->x());
             QTRY_COMPARE(copyLabel->x() + copyLabel->width(), copyLabel->parentItem()->width());
             QTRY_VERIFY(copy->height() >= entityText->implicitHeight()
