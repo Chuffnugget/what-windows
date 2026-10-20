@@ -27,7 +27,7 @@ function connectionText(controller, key) {
         return web.url ? "Ready to Open" : "Not configured";
     }
     if (key === "custom")
-        return controller.customSources.enabled ? "Configed" : "Disabled";
+        return controller.customSources.enabled ? "Configured" : "Disabled";
     const status = controller.info;
     if (key === "wallpaper") {
         const state = controller.wallpaper;
