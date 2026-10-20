@@ -71,5 +71,6 @@ private:
     QHash<QString, QString> rendered;
     QPointer<QWindow> mainWindow;
     bool browsing = false;
+    bool refreshing = false, refreshPending = false, refreshQueued = false;
     IconRenderer renderer;
 };

@@ -108,3 +108,24 @@ are removed so they cannot be mistaken for usable crash reports.
 Native stack addresses need matching build symbols to resolve function names and
 line numbers. A module label identifies the reporting component; it does not
 establish the cause of the crash.
+
+## Capturing a freeze
+
+For a repeat freeze, run `scripts/Watch-WhatHang.ps1` from a source checkout while
+WHAT is running. Find its process ID with `Get-Process WHAT | Select-Object Id, Path`,
+then pass that ID to the script:
+
+```powershell
+.\scripts\Watch-WhatHang.ps1 -ProcessId 1234
+```
+
+Replace `1234` with WHAT's actual process ID. The script watches that one process
+for up to 60 minutes, including when its window is hidden. After at least 10 seconds
+of failed UI probes, it saves a thread-stack dump and resource log under
+`build/diagnostics/hangs`, then stops. Leave WHAT frozen for about 15 seconds before
+using End Task so capture can complete. Closing WHAT also stops the watcher.
+
+The script leaves WHAT running, changes no settings and uploads nothing. Dumps
+can contain private memory and are not redacted. Use `-Minutes` to change the
+watch period or `-OutputDirectory` to choose another output folder. No dump is
+created if the app stays responsive.

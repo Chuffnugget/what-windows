@@ -8,6 +8,8 @@
 #include <QFontDialog>
 #include <QCloseEvent>
 #include <QTimer>
+#include <QScopedValueRollback>
+#include <QScopeGuard>
 #include <functional>
 #include <QCryptographicHash>
 #include <QUuid>
@@ -137,6 +139,8 @@ TaskbarIconManager::TaskbarIconManager(const QString &file, bool testing, QObjec
 }
 
 TaskbarIconManager::~TaskbarIconManager() {
+    // Native window destruction can deliver callbacks. Do not recreate panels.
+    refreshing = true;
     qDeleteAll(panels);
 }
 
@@ -310,9 +314,28 @@ void TaskbarIconManager::save() {
 }
 
 void TaskbarIconManager::refresh() {
+    if (refreshing) {
+        refreshPending = true;
+        return;
+    }
+    QScopedValueRollback<bool> updating(refreshing, true);
+    refreshPending = false;
+    const auto finish = qScopeGuard([this] {
+        if (refreshPending && !refreshQueued) {
+            refreshQueued = true;
+            QTimer::singleShot(0, this, [this] {
+                refreshQueued = false;
+                refresh();
+            });
+        }
+    });
+    // setWindowIcon and Shell property calls can deliver events synchronously.
+    // Keep iteration valid if one of those events edits configuration, and defer
+    // the new pass until the native call has returned before deleting its window.
+    const auto snapshot = configuration;
     QSet<QString> keep;
     QVariantMap next;
-    for (const auto &value : configuration) {
+    for (const auto &value : snapshot) {
         const auto style = value.toMap();
         const auto id = style["id"].toString();
         const auto sensor = style["sensor"].toString();
@@ -341,6 +364,8 @@ void TaskbarIconManager::refresh() {
                     panel->setWindowIcon(icon);
             }
         }
+        if (refreshPending)
+            return;
         QString error;
         if (id != "main" && !testMode && cachedIcons.contains(id)) {
             auto *panel = static_cast<SensorPanel *>(panels.value(id));
@@ -363,12 +388,16 @@ void TaskbarIconManager::refresh() {
             panel->setWindowTitle(style["name"].toString() + " - WHAT");
             panel->setToolTip(tip);
         }
+        if (refreshPending)
+            return;
         next[id] = QVariantMap{{"text", text}, {"tooltip", tip}, {"preview", preview}, {"error", error},
             {"module", sensor.isEmpty() ? QString() : SensorTrayManager::moduleName(row["source"].toString())}};
     }
     for (const auto &id : panels.keys())
         if (!keep.contains(id))
             delete panels.take(id);
+    if (refreshPending)
+        return;
     for (const auto &id : cachedIcons.keys())
         if (!keep.contains(id)) {
             cachedIcons.remove(id);

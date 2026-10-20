@@ -6073,6 +6073,54 @@ private slots:
         QTRY_COMPARE(manager->taskbarIcons()->values()["main"].toMap()["text"].toString(), QString("67"));
     }
 
+    void taskbarIconRemovalDuringUpdate_data() {
+        QTest::addColumn<bool>("addMore");
+        QTest::newRow("remove") << false;
+        QTest::newRow("remove-and-add") << true;
+    }
+
+    void taskbarIconRemovalDuringUpdate() {
+        QFETCH(bool, addMore);
+        QTest::failOnWarning(QRegularExpression("QFont::fromString:.*"));
+        QTemporaryDir dir;
+        TaskbarIconManager manager(dir.filePath("taskbar.yaml"), false);
+        QVariantMap reading{{"id", "cpu"}, {"name", "Core Max"}, {"kind", "number"},
+                            {"value", 42}, {"available", true}};
+        manager.setReadings({reading});
+        manager.addSelected({"cpu", "cpu"});
+        const auto first = manager.entries()[1].toMap()["id"].toString();
+        const auto second = manager.entries()[2].toMap()["id"].toString();
+        QPointer<QWidget> panel;
+        QTRY_VERIFY(([&] {
+            for (auto *widget : QApplication::topLevelWidgets())
+                if (widget->objectName() == "taskbarPanel_" + first)
+                    panel = widget;
+            return panel && !panel->windowIcon().isNull();
+        })());
+        // Native window updates can deliver callbacks before refresh unwinds.
+        // Removing the updating icon must not invalidate that refresh's objects.
+        bool removed = false;
+        connect(panel, &QWidget::windowIconChanged, &manager, [&] {
+            if (!removed) {
+                removed = true;
+                manager.remove(first);
+                if (addMore) {
+                    QStringList sensors;
+                    for (int i = 0; i < 16; ++i)
+                        sensors << "cpu";
+                    manager.addSelected(sensors);
+                }
+            }
+        });
+        reading["value"] = 43;
+        manager.setReadings({reading});
+        QTRY_VERIFY(removed);
+        QTRY_VERIFY(panel.isNull());
+        QCOMPARE(manager.entries().size(), addMore ? 18 : 2);
+        QVERIFY(!manager.values().contains(first));
+        QTRY_COMPARE(manager.values()[second].toMap()["text"].toString(), QString("43"));
+    }
+
     void taskbarIndicatorHasIndependentWindow() {
         QTemporaryDir dir;
         TaskbarIconManager manager(dir.path() + "/taskbar.yaml", false);

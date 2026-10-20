@@ -64,6 +64,25 @@ The companion integration requires Home Assistant 2026.9+.
 Discovery uses local mDNS/Zeroconf. Use manual pairing when multicast is blocked
 by a firewall, router or VLAN. The integration requires Home Assistant 2026.9+.
 
+## Key Features
+
+Add sensors like CPU and GPU temperatures to System Tray Icons or Taskbar Icon.
+
+![Windows taskbar displaying custom System Tray Icons](documentation/images/whatSystemTray.png)
+
+![Windows taskbar displaying custom App Icons](documentation/images/whatAppIcon.png)
+
+[Still writing README, check back later!]
+
+## Planned features
+
+- Desktop widgets for Home Assistant entities.
+- Native controls for Home Assistant entities.
+- Linux desktop app support, with **LHAT** as a tentative name.
+
+These features are not available yet and have no release date. The Home Assistant
+Web module already provides access to your dashboard through an embedded browser.
+
 ## Multiple Home Assistant Installations
 
 Use **WHAT > Settings > Home Assistant Installations** to add, name, edit,
@@ -247,12 +266,6 @@ guards. Simple getters and setters do not need comments that repeat their names.
 - [Building and releasing](documentation/RELEASE.md), [Rebuilding libraries](documentation/REBUILDING.md), [Integration contract](documentation/INTEGRATION-CONTRACT.md)
 - [WHAT logo](documentation/LOGO-ASSETS.md), [Module artwork](documentation/BRAND-ASSETS.md)
 - [Third-party notices](documentation/licenses/THIRD-PARTY.md), [Redistribution notes](documentation/REDISTRIBUTION.md)
-
-## Planned features
-
-Desktop widgets and native controls for Home Assistant entities are planned.
-They are not available yet and have no release date. The Home Assistant Web
-module already provides access to your dashboard through an embedded browser.
 
 ## Licence
 
