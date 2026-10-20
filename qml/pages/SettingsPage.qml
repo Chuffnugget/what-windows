@@ -552,7 +552,7 @@ DragScrollView {
                 }
 
                 OptionCheckBox {
-                    ToolTip.text: "Animate WHAT pages, menus, helper text, controls, panels and the logo. Turn this off to make their state changes immediate."
+                    ToolTip.text: "Animate WHAT pages, menus, controls, panels and the logo. Turn this off to make their state changes immediate."
                     objectName: "animationsToggle"
                     text: "Enable Animations"
                     checked: Theme.animationsEnabled
@@ -560,7 +560,7 @@ DragScrollView {
                 }
 
                 HintLabel {
-                    text: "Page transitions, menus, helper text, logos, hover effects and expanding sections. Prompts and the main window open and close immediately. Changes apply immediately and are remembered."
+                    text: "Page transitions, menus, logos, hover effects and expanding sections. Helper text, prompts and the main window have no open or close animation. Changes apply immediately and are remembered."
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
                 }
@@ -575,7 +575,7 @@ DragScrollView {
                 }
 
                 ActionButton {
-                    ToolTip.text: "Adjust menu, helper text, page, control, panel, logo and notification timings."
+                    ToolTip.text: "Adjust menu, page, control, panel, logo and notification timings."
                     text: "Animation Timings…"
                     onClicked: settingsScroll.timingRequested()
                 }

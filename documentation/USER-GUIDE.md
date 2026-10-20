@@ -202,17 +202,16 @@ WHAT's main window and prompts open and close immediately. Prompts keep their
 glass backgrounds. Sections and sensor rows slide open and closed, and each
 page slides vertically together with its title and warning banners.
 
-The contents of sections, sensor rows, menus and helper text soften as
+The contents of sections, sensor rows and menus soften as
 they close and become sharp as they open. Outer backgrounds, borders and sensor
 selection strips stay sharp. Blur follows the existing animation timing and
 switches off at rest. It requires hardware rendering.
 
 Open **Animation Timings** to adjust durations in milliseconds. Panels and list
 rows use Expand / Collapse and List Movement. Page Changes controls the whole
-page, including its title. Tooltips use **Helper Text Open / Close**, which defaults
-to 350 ms. Higher values make the animation slower; the 600 ms hover delay is
-separate. **Reset Defaults** resets every timing, including custom values, and
-returns helper text to 350 ms. **Menus Open** and **Menus Close** adjust menu timing.
+page, including its title. Helper text appears after the 600 ms hover delay,
+without an open or close animation. **Reset Defaults** resets every timing,
+including custom values. **Menus Open** and **Menus Close** adjust menu timing.
 Minimising and maximising use Windows' own animations. Separate colour and file
 dialogs, native tray menus and embedded browser content keep their own rendering.
 Software rendering uses Standard transitions because it cannot run shader effects.
@@ -231,8 +230,7 @@ expanded, so the active row remains easy to find.
 
 Prompts appear over a still glass background. The sensor list shows a loading indicator while its first rows are being prepared; existing rows stay visible during refreshes. Keyboard navigation shows a focus outline; mouse clicks do not.
 
-Tooltips use the Helper Text Open / Close timing for their entry and exit animation. Expanded
-section headers have a subtle background highlight in every theme. Expanding
+Expanded section headers have a subtle background highlight in every theme. Expanding
 sections scroll into view as they open. Drag page backgrounds or list rows to
 scroll; text selection and slider gestures keep their usual behaviour.
 

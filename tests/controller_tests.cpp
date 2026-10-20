@@ -68,6 +68,7 @@
 #include <QLibrary>
 #include <QScopeGuard>
 #include <QWheelEvent>
+#include <QHoverEvent>
 #include <stdexcept>
 
 class ReleaseUrlCapture : public QObject {
@@ -4675,9 +4676,21 @@ private slots:
 
     void uiTimingsPersistClampAndReset() {
         QTemporaryDir dir;
+        {
+            QSettings previous(dir.filePath("test-settings.yaml"), SettingsStore::format());
+            previous.setValue("ui/timing/tooltips", 2000);
+        }
         Controller local(dir.path(), true);
         QCOMPARE(local.uiTimings()["logo"].toInt(), 1500);
-        QCOMPARE(local.uiTimings()["tooltips"].toInt(), 350);
+        QVERIFY(!local.uiTimings().contains("tooltips"));
+        QVERIFY(!local.settings.contains("ui/timing/tooltips"));
+        local.setUiTiming("tooltips", 2000);
+        QVERIFY(!local.settings.contains("ui/timing/tooltips"));
+        const auto oldBackup = ConfigurationFile::decode(ConfigurationFile::encode(
+            {{"ui/timing/tooltips", 350}, {"ui/timing/panels", 650}}));
+        QVERIFY2(oldBackup.error.isEmpty(), qPrintable(oldBackup.error));
+        QVERIFY(!oldBackup.values.contains("ui/timing/tooltips"));
+        QCOMPARE(oldBackup.values["ui/timing/panels"].toInt(), 650);
         local.setUiTiming("panels", 650);
         local.setUiTiming("logo", 2200);
         local.setUiTiming("logoPause", 0);
@@ -5198,7 +5211,7 @@ private slots:
         QTemporaryDir dir;
         Controller local(dir.path(), true);
         local.stopService();
-        // Existing preferences still apply to menus/tooltips, but must never
+        // Existing preferences still apply to menus, but must never
         // restore effects on the main window or any prompt.
         local.settings.setValue("ui/transition_style", "refraction");
         local.settings.setValue("ui/refraction_strength", 150);
@@ -5228,6 +5241,7 @@ private slots:
         QVERIFY(!window->findChild<QObject *>("refractionStrengthInput"));
         QVERIFY(!window->findChild<QObject *>("timing-windowEnter"));
         QVERIFY(!window->findChild<QObject *>("timing-windowExit"));
+        QVERIFY(!window->findChild<QObject *>("timing-tooltips"));
 
         // Also cover dialogs that do not inherit GlassDialog, such as the
         // installation editor, display manager and custom sensor library.
@@ -8322,6 +8336,27 @@ private slots:
 
     void sharedToolTips() {
         QFETCH(QString, windowName);
+        // This checks the controls' hover bindings and native popup layering.
+        // Keep desktop cursor events from changing the target while a delayed
+        // tooltip is opening; send ordinary Qt hover events to each control.
+        class HoverInput final : public QObject {
+        public:
+            void send(QQuickItem *control, QEvent::Type type) {
+                const QPointF position(control->width() / 2, control->height() / 2);
+                QHoverEvent event(type, position, control->mapToGlobal(position), position);
+                sending = true;
+                QCoreApplication::sendEvent(control, &event);
+                sending = false;
+            }
+
+            bool eventFilter(QObject *, QEvent *event) override {
+                return !sending && (event->type() == QEvent::HoverEnter
+                    || event->type() == QEvent::HoverMove || event->type() == QEvent::HoverLeave);
+            }
+
+        private:
+            bool sending = false;
+        } hoverInput;
         QQmlApplicationEngine engine;
         QSignalSpy warnings(&engine, &QQmlEngine::warnings);
         engine.loadData(R"(
@@ -8388,24 +8423,23 @@ private slots:
         auto *frame = window->findChild<QWindow *>("nativeWebFrame");
         QVERIFY(frame);
         QVERIFY(QTest::qWaitForWindowExposed(frame));
-        window->raise();
-        window->requestActivate();
-        QVERIFY(QTest::qWaitForWindowActive(window));
-        // Native child and popup windows need the real cursor position. Use
-        // native movement alone: mixing it with QTest mouse events lets queued
-        // Windows hover events overwrite the synthetic pointer's current target.
-        const auto movePointer = [&](QPoint point) {
-            QCursor::setPos(window->mapToGlobal(point));
-        };
-        movePointer(QPoint(180, 240));
+        for (const auto *name : {"first", "second"}) {
+            auto *control = window->findChild<QQuickItem *>(name);
+            QVERIFY(control);
+            control->installEventFilter(&hoverInput);
+            hoverInput.send(control, QEvent::HoverLeave);
+        }
         auto *tip = window->property("sharedTip").value<QObject *>();
         QVERIFY(tip);
         QCOMPARE(tip->objectName(), QString("whatToolTip"));
         QCOMPARE(tip, window->property("otherTip").value<QObject *>());
+        QVERIFY(!tip->property("enter").value<QObject *>());
+        QVERIFY(!tip->property("exit").value<QObject *>());
+        QVERIFY(!tip->property("popupMotion").isValid());
         for (const auto *name : {"first", "second"}) {
             auto *control = window->findChild<QQuickItem *>(name);
             QVERIFY(control);
-            movePointer(control->mapToScene(QPointF(control->width() / 2, 15)).toPoint());
+            hoverInput.send(control, QEvent::HoverEnter);
             QTRY_VERIFY(control->property("hovered").toBool());
             QTRY_VERIFY(tip->property("visible").toBool());
             QTRY_COMPARE(tip->property("parent").value<QQuickItem *>(), control);
@@ -8425,49 +8459,32 @@ private slots:
                 if (!qEnvironmentVariableIsEmpty("WHAT_REDESIGN_PREVIEW"))
                     window->grabWindow().save(qEnvironmentVariable("WHAT_REDESIGN_PREVIEW") + "/tooltip.png");
             }
-            movePointer(QPoint(180, 240));
+            hoverInput.send(control, QEvent::HoverLeave);
+            QVERIFY(!control->property("hovered").toBool());
             QTRY_VERIFY(!tip->property("visible").toBool());
         }
 
-        auto *motion = tip->property("popupMotion").value<QObject *>();
-        QVERIFY(motion);
-        auto *lens = motion->property("lens").value<QObject *>();
-        QVERIFY(lens);
         QVERIFY(QMetaObject::invokeMethod(window, "prepareHandoffs"));
         QVERIFY(QMetaObject::invokeMethod(window, "showFirst"));
-        QTRY_VERIFY(tip->property("opened").toBool());
-        QVERIFY(!lens->property("active").toBool());
+        QVERIFY(tip->property("opened").toBool());
 
-        // Reusing an already open tooltip must reveal the new hint as well.
+        // A shared hint changes text and owner immediately. A late hide from
+        // the previous control must not close it for the new control.
         QVERIFY(QMetaObject::invokeMethod(window, "showSecond"));
-        QVERIFY(motion->property("running").toBool());
-        QTRY_VERIFY(lens->property("active").toBool());
         QCOMPARE(tip->property("text").toString(), QString("Open help."));
-        QTRY_VERIFY(tip->property("opened").toBool());
-        QVERIFY(!lens->property("active").toBool());
+        QCOMPARE(tip->property("parent").value<QQuickItem *>(), window->findChild<QQuickItem *>("second"));
+        QVERIFY(tip->property("opened").toBool());
 
-        // A second control can also take over before the first reveal finishes.
-        QVERIFY(QMetaObject::invokeMethod(window, "showFirst"));
-        QVERIFY(motion->property("running").toBool());
-        QTRY_VERIFY(motion->property("progress").toDouble() > 0.2);
-        QVERIFY(QMetaObject::invokeMethod(window, "showSecond"));
-        QVERIFY(motion->property("running").toBool());
-        QCOMPARE(tip->property("text").toString(), QString("Open help."));
-        QTRY_VERIFY(tip->property("opened").toBool());
-
-        // Moving back during the close must restart the reveal and release the
-        // temporary render layer when it settles.
+        // Closing and reopening must not leave a transition or render layer.
         QVERIFY(QMetaObject::invokeMethod(tip, "close"));
-        QTRY_VERIFY(lens->property("active").toBool());
+        QVERIFY(!tip->property("visible").toBool());
         QVERIFY(QMetaObject::invokeMethod(window, "showFirst"));
-        QTRY_VERIFY(tip->property("opened").toBool());
-        QVERIFY(!lens->property("active").toBool());
-        auto *surface = lens->property("target").value<QQuickItem *>();
-        QVERIFY(surface);
-        QVERIFY(!QQmlProperty::read(surface, "layer.enabled").toBool());
+        QVERIFY(tip->property("opened").toBool());
+        auto *content = tip->property("contentItem").value<QQuickItem *>();
+        QVERIFY(content);
+        QVERIFY(!QQmlProperty::read(content->parentItem(), "layer.enabled").toBool());
         QVERIFY(QMetaObject::invokeMethod(tip, "close"));
-        QTRY_VERIFY(lens->property("active").toBool());
-        QTRY_VERIFY(!tip->property("visible").toBool());
+        QVERIFY(!tip->property("visible").toBool());
         QCOMPARE(warnings.count(), 0);
     }
 
@@ -8597,11 +8614,13 @@ private slots:
         QVERIFY(!engine.rootObjects().isEmpty());
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
         window->show();
+        QVERIFY(QTest::qWaitForWindowExposed(window));
         window->requestActivate();
         QVERIFY(QTest::qWaitForWindowActive(window));
         auto *choice = window->findChild<QQuickItem *>("choice");
         QVERIFY(choice);
         choice->forceActiveFocus(Qt::TabFocusReason);
+        QTRY_COMPARE(window->activeFocusItem(), choice);
         QTest::keyClick(window, Qt::Key_Space);
         auto *popup = choice->property("popup").value<QObject *>();
         QVERIFY(popup);

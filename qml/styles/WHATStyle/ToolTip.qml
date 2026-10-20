@@ -25,26 +25,6 @@ T.ToolTip {
     closePolicy: T.Popup.CloseOnEscape | T.Popup.CloseOnPressOutsideParent
         | T.Popup.CloseOnReleaseOutsideParent
 
-    property PopupMotion popupMotion: PopupMotion {
-        popup: tip
-        enterDuration: Theme.timings.tooltips
-        exitDuration: Theme.timings.tooltips
-    }
-    enter: popupMotion.enter
-    exit: popupMotion.exit
-
-    // Qt can hand the shared tooltip to another control before the old hover
-    // ends. Close the old hint so the following show starts a fresh reveal.
-    // Otherwise Qt keeps it open and skips the enter transition entirely.
-    onParentChanged: {
-        if (visible) {
-            close();
-            // A different hint needs a fresh reveal, unlike reversing a hover
-            // on the same control partway through its closing animation.
-            popupMotion.progress = 0;
-        }
-    }
-
     contentItem: Text {
         text: tip.text
         textFormat: Text.PlainText

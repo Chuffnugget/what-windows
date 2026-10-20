@@ -84,7 +84,6 @@ const QMap<QString, QPair<double, double>> ranges = {{"sample_seconds", {0.5, 60
                                                      {"modules/haweb/scale", {50, 200}},
                                                      {"ui/sidebar_width", {180, 360}},
                                                      {"ui/timing/hover", {0, 2000}},
-                                                     {"ui/timing/tooltips", {0, 2000}},
                                                      {"ui/timing/controls", {0, 2000}},
                                                      {"ui/timing/panels", {0, 2000}},
                                                      {"ui/timing/lists", {0, 2000}},
@@ -323,9 +322,13 @@ Result decode(const QByteArray &data) {
         const auto key = keyArray[0].toString();
         const auto valueArray =
             QJsonDocument::fromJson(("[" + match.captured(2) + "]").toUtf8(), &error).array();
-        // Discard the retired UI preference without rejecting an otherwise valid backup.
+        // Discard retired UI preferences without rejecting an otherwise valid backup.
         if (key == "hide_connection" && error.error == QJsonParseError::NoError &&
             valueArray.size() == 1 && valueArray[0].isBool())
+            continue;
+        if (key == "ui/timing/tooltips" && error.error == QJsonParseError::NoError &&
+            valueArray.size() == 1 && valueArray[0].isDouble() &&
+            valueArray[0].toDouble() >= 0 && valueArray[0].toDouble() <= 2000)
             continue;
         if (error.error != QJsonParseError::NoError || valueArray.size() != 1 || !valid(key, valueArray[0]) ||
             result.values.contains(key))

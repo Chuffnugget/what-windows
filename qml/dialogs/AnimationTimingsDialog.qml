@@ -39,7 +39,7 @@ GlassDialog {
             spacing: Theme.spaceM
 
             HintLabel {
-                text: "Durations are in milliseconds and save automatically. Sections, menus and helper text blur as they close and sharpen as they open. Prompts and the main window open and close immediately. Zero makes a transition immediate. Longer page jumps transition faster. Page Changes moves each page together with its title. The animation switch still takes priority."
+                text: "Durations are in milliseconds and save automatically. Sections and menus blur as they close and sharpen as they open. Helper text, prompts and the main window have no open or close animation. Zero makes a transition immediate. Longer page jumps transition faster. Page Changes moves each page together with its title. The animation switch still takes priority."
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
             }
@@ -49,14 +49,6 @@ GlassDialog {
                     {
                         key: "hover",
                         label: "Hover Effects",
-                        min: 0,
-                        max: 2000
-                    },
-
-                    {
-                        key: "tooltips",
-                        label: "Helper Text Open / Close",
-                        help: "How long helper text takes to appear and disappear. Default: 350 ms. Higher values make it slower. This is separate from the 600 ms wait before it appears.",
                         min: 0,
                         max: 2000
                     },
@@ -160,7 +152,7 @@ GlassDialog {
             }
 
             ActionButton {
-                ToolTip.text: "Reset every timing in this list, including any custom values. Helper Text Open / Close returns to 350 ms; resetting will not make it slower than the default."
+                ToolTip.text: "Reset every timing in this list, including any custom values."
                 objectName: "resetAnimationTimings"
                 text: "Reset Defaults"
                 onClicked: timingDialog.controller.resetUiTimings()

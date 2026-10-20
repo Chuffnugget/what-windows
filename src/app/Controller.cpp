@@ -103,6 +103,7 @@ Controller::Controller(const QString &dir, bool testing, QObject *parent)
     }
     // Pairing-address visibility belongs to the current UI session.
     settings.remove("hide_connection");
+    settings.remove("ui/timing/tooltips");
     homeAssistantWeb = new HomeAssistantWeb(settings, directory, testMode, this);
     connect(homeAssistantWeb, &HomeAssistantWeb::configurationChanged, this, &Controller::scheduleSettingsFlush);
     connect(homeAssistantWeb, &HomeAssistantWeb::configurationChanged, this, &Controller::changed);
@@ -724,8 +725,8 @@ QVariantMap Controller::info() const {
 }
 
 QVariantMap Controller::buildInfo(int activeSelected) const {
-    // Keep the saved appearance of menus and helper text after removing the
-    // prompt/window effect controls. Those surfaces no longer use these values.
+    // Keep the saved menu appearance. Helper text, prompts and the main window
+    // no longer use these effects.
     const auto &motion = UiMotion::resolve(settings.value("ui/transition_style").toString());
     const auto filters = browserFilters();
     const auto now = QDateTime::currentDateTimeUtc();
@@ -1706,7 +1707,6 @@ void Controller::addSensorToTray(const QString &id) {
 namespace {
 const QVariantMap defaultUiTimings{
     {"hover", 140},
-    {"tooltips", 350},
     {"controls", 120},
     {"panels", 250},
     {"lists", 170},

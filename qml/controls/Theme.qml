@@ -122,7 +122,6 @@ QtObject {
     // Main binds these to the saved settings; controls can also run in isolation.
     property var timings: ({
             hover: 140,
-            tooltips: 350,
             controls: 120,
             panels: 250,
             lists: 170,
