@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [ValidateSet('x64', 'arm64')][string]$Architecture = 'x64',
+    [switch]$Clean,
     [string]$ResultPath
 )
 . "$PSScriptRoot/Release.Common.ps1"
@@ -13,6 +14,11 @@ $runtime = Join-Path $release 'portable'
 $logs = Join-Path $ProjectRoot "build/logs/$version/$runId"
 $kitName = "qt-6.11.2-msvc-$Architecture-" + $tools.CompilerVersion
 $build = Join-Path $ProjectRoot "build/release/$kitName"
+if ($Clean) {
+    # An isolated tree prevents CMake/Ninja caches from hiding missing inputs.
+    # Preserve existing builds, downloaded SDKs and signing files.
+    $build = Join-Path $ProjectRoot ("build/release/clean-" + $runId + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6) + "/$kitName")
+}
 foreach ($folder in @($runtime,$logs,$build)) { New-Item -ItemType Directory -Path $folder -Force | Out-Null }
 $originalEnvironment = @{}
 Get-ChildItem Env: | ForEach-Object { $originalEnvironment[$_.Name] = $_.Value }
@@ -24,6 +30,7 @@ try {
     $env:QT_PLUGIN_PATH = "$($tools.Qt)/plugins"
     Write-Host "Building WHAT $version (Release $Architecture)" -ForegroundColor Cyan
     Write-Host "Qt: $($tools.Qt) | Compiler: $($tools.Compiler)"
+    Write-Host "Build directory: $build"
     Write-Host 'WHAT build task: Configuring CMake'
     $targetOptions = @()
     if ($Architecture -eq 'arm64') {

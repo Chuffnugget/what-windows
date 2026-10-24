@@ -1,13 +1,29 @@
 [CmdletBinding()]
 param(
     [switch]$ValidateOnly,
+    [switch]$Clean,
     [ValidateSet('all', 'x64', 'arm64')][string]$Architecture = 'all',
     [Parameter(DontShow)][switch]$BuildWorker
 )
 $ErrorActionPreference = 'Stop'
+# The double-click launcher starts in Windows PowerShell. Use the same shell as
+# Actions for the actual pipeline, including when invoked from a PS 5 terminal.
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    $shell = Get-Command pwsh.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    $shellPath = if ($shell) { $shell.Source } else { Join-Path $env:ProgramFiles 'PowerShell/7/pwsh.exe' }
+    if (!(Test-Path -LiteralPath $shellPath -PathType Leaf)) {
+        throw 'Build-All requires PowerShell 7, as used by GitHub Actions. Install it with: winget install --id Microsoft.PowerShell --source winget'
+    }
+    $forward = @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-Architecture', $Architecture)
+    if ($ValidateOnly) { $forward += '-ValidateOnly' }
+    if ($Clean) { $forward += '-Clean' }
+    if ($BuildWorker) { $forward += '-BuildWorker' }
+    & $shellPath @forward
+    exit $LASTEXITCODE
+}
 if (!$BuildWorker) {
     . "$PSScriptRoot/Build.Progress.ps1"
-    $buildExitCode = Invoke-BuildProgress -ScriptPath $PSCommandPath -Architecture $Architecture -ValidateOnly:$ValidateOnly
+    $buildExitCode = Invoke-BuildProgress -ScriptPath $PSCommandPath -Architecture $Architecture -ValidateOnly:$ValidateOnly -Clean:$Clean
     if ($buildExitCode -ne 0) { throw "Build-All failed with exit code $buildExitCode. See the build output and compilation report above." }
     return
 }
@@ -24,6 +40,10 @@ $previousOpenSSLConfig = $env:OPENSSL_CONF
 try {
     Start-Transcript -LiteralPath $report.log | Out-Null
     $transcribing = $true
+    if (!$ValidateOnly) {
+        Set-BuildReportStage $report 'Preflight'
+        & "$PSScriptRoot/Invoke-ReleasePipeline.ps1" -Stage Preflight
+    }
     Set-BuildReportStage $report 'Prerequisites'
     $configuration = Read-Configuration
     $report.version = Get-ProjectVersion
@@ -59,13 +79,13 @@ try {
         try {
             Set-BuildReportStage $report "$target Build"
             # Flush native compiler output while the transcript is active.
-            & "$PSScriptRoot/Build-Release.ps1" -Architecture $target -ResultPath $resultPath | Out-Host
+            & "$PSScriptRoot/Invoke-ReleasePipeline.ps1" -Stage Build -Architecture $target -ResultPath $resultPath -Clean:$Clean | Out-Host
             $built = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
             $releaseState = Get-Content -LiteralPath (Join-Path $built.release 'release.json') -Raw | ConvertFrom-Json
             $output = [ordered]@{ architecture=$target; release=$built.release; runtimeTests=$releaseState.tests; installer=$null; portable=$null }
             $report.outputs.Add($output)
             Set-BuildReportStage $report "$target Packaging"
-            & "$PSScriptRoot/Build-Installers.ps1" -Architecture $target -ReleaseDirectory $built.release | Out-Host
+            & "$PSScriptRoot/Invoke-ReleasePipeline.ps1" -Stage Package -Architecture $target -ReleaseDirectory $built.release | Out-Host
         } finally {
             if (Test-Path -LiteralPath $resultPath) { Remove-Item -LiteralPath $resultPath -Force }
         }

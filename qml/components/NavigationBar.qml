@@ -157,17 +157,7 @@ Rectangle {
                 ToolTip.text: "Settings: Version " + sidebar.availableUpdate + " is available. Open update settings."
                 onClicked: sidebar.updateRequested()
 
-                background: Rectangle {
-                    color: updateBadge.hovered ? Theme.hover : Theme.selected
-                    border.width: 1
-                    border.color: updateBadge.hovered ? Theme.accent : Theme.outline
-
-                    Behavior on color {
-                        ColorAnimation {
-                            duration: Theme.animationsEnabled ? Theme.timings.hover : 0
-                        }
-                    }
-                }
+                background: Item {}
 
                 contentItem: Image {
                     source: "qrc:/assets/update-available.svg"

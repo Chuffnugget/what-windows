@@ -160,7 +160,11 @@ int main(int argc, char **argv) {
             return startupFailure("WHAT could not load its interface. Reinstall the complete package.\n\n"
                                   + interfaceErrors.join('\n'));
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
-        QObject::connect(window, SIGNAL(windowQuitReady()), &app, SLOT(quit()));
+        // Confirmed shutdown must not ask the extra taskbar-icon windows to close:
+        // they deliberately veto ordinary closes and activate WHAT instead. Exit
+        // the event loop normally, after the dialog callback has returned; stack
+        // destruction still saves settings and cleans up windows and workers.
+        QObject::connect(window, SIGNAL(windowQuitReady()), &app, SLOT(exit()), Qt::QueuedConnection);
         WindowFrame frame(reinterpret_cast<HWND>(window->winId()));
         frame.transitionRequested = [window](const QString &action) {
             QMetaObject::invokeMethod(window, "performWindowAction", Q_ARG(QVariant, action));

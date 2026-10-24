@@ -3,6 +3,7 @@ $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 & "$PSScriptRoot/build-all-tests.ps1" -OutputDirectory (Join-Path $OutputDirectory 'build-all')
 & "$PSScriptRoot/build-progress-tests.ps1" -OutputDirectory (Join-Path $OutputDirectory 'build-progress')
+& "$PSScriptRoot/release-pipeline-tests.ps1" -OutputDirectory (Join-Path $OutputDirectory 'pipeline')
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $OutputDirectory = (Resolve-Path -LiteralPath $OutputDirectory).Path
 foreach($file in Get-ChildItem "$root/scripts","$root/packaging" -Filter '*.ps1' -File){

@@ -3,6 +3,8 @@
 #include <QJsonObject>
 #include <QMap>
 #include <QElapsedTimer>
+#include <QNetworkInterface>
+#include <functional>
 
 // Used by one background worker at a time. Never touches the GUI or HWiNFO.
 class WindowsCollector {
@@ -12,6 +14,8 @@ public:
     QString wifiIssue() const { return wifiAccessIssue; }
 
 private:
+    friend class ControllerTests;
+    std::function<QList<QNetworkInterface>()> networkInterfaces = QNetworkInterface::allInterfaces;
     QMap<QString, QJsonObject> volumes;
     QMap<QString, QPair<quint64, quint64>> networkBytes;
     QElapsedTimer networkClock, slowClock, bridgeClock;

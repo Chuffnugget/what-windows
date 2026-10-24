@@ -31,15 +31,10 @@ jobs:
         run: |
           if (!(Test-Path "$env:GITHUB_WORKSPACE/CMakeLists.txt")) { throw 'Run this workflow from the what-windows repository root, not the umbrella/submodule repository.' }
           "PROJECT_DIR=$env:GITHUB_WORKSPACE" >> $env:GITHUB_ENV
-      - name: Validate release tag against source version
+      - name: Run shared preflight and validate release tag
         run: |
-          . "$env:PROJECT_DIR/scripts/Release.Common.ps1"
-          $version = Get-ProjectVersion
-          $expectedTag = 'v' + $version
-          Write-Host "Source version: $version; Git ref: $env:GITHUB_REF_NAME"
-          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne $expectedTag) {
-            throw "Release tag '$env:GITHUB_REF_NAME' does not match source version '$version' (expected '$expectedTag'). Commit the version bump before tagging. Re-running this old tag will not include a newer version commit."
-          }
+          $tag = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { '' }
+          ./scripts/Invoke-ReleasePipeline.ps1 -Stage Preflight -Tag $tag
       - name: Check release destination before building
         if: startsWith(github.ref, 'refs/tags/')
         env:
@@ -47,12 +42,6 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_REPOSITORY: ${{ github.repository }}
         run: ./scripts/Publish-Release.ps1 -CheckOnly -Tag $env:RELEASE_TAG -Repository $env:RELEASE_REPOSITORY
-      - name: Validate packaging policy without installation
-        run: |
-          ./tests/release-policy-tests.ps1
-          ./tests/release-upload-tests.ps1
-      - name: Validate installer compatibility and layouts
-        run: ./tests/setup-layout-tests.ps1
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
@@ -108,18 +97,13 @@ jobs:
             Write-Host "$architecture compiler: $($tools.CompilerVersion); Qt: $($tools.Qt)"
           }
       - name: Build and test x64 Release
-        env:
-          # Exercise shaders and native popups on a reproducible Windows device,
-          # even when the hosted runner has no hardware GPU.
-          QSG_RHI_BACKEND: d3d11
-          QSG_RHI_PREFER_SOFTWARE_RENDERER: '1'
         run: |
           Set-Location $env:PROJECT_DIR
-          ./scripts/Build-Release.ps1 -Architecture x64
+          ./scripts/Invoke-ReleasePipeline.ps1 -Stage Build -Architecture x64
       - name: Cross-compile and verify ARM64 Release
         run: |
           Set-Location $env:PROJECT_DIR
-          ./scripts/Build-Release.ps1 -Architecture arm64
+          ./scripts/Invoke-ReleasePipeline.ps1 -Stage Build -Architecture arm64
       - name: Prepare portable and source artifacts
         if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
         run: |
@@ -183,12 +167,9 @@ jobs:
             Write-Host "Temporary trust is ready; building and signing installers."
             . ./scripts/Release.Common.ps1
             foreach ($architecture in @('x64', 'arm64')) {
-              ./scripts/Build-Installers.ps1 -Architecture $architecture
+              ./scripts/Invoke-ReleasePipeline.ps1 -Stage Package -Architecture $architecture
               $suffix = if ($architecture -eq 'x64') { '' } else { '-arm64' }
               $result = Get-Content "build/latest-installers$suffix.json" -Raw | ConvertFrom-Json
-              Write-Host "$architecture installers built; validating updater signatures and handoff."
-              # Each fixture defines mock Windows APIs and needs a fresh process.
-              Invoke-Checked (Get-Command powershell.exe).Source @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', './tests/update-helper-tests.ps1', '-PackagePath', $result.updatePackage, '-CertificatePath', "$private/publisher.cer")
               Copy-Item -LiteralPath $result.installer,$result.updatePackage,$result.updateManifest,$result.portable -Destination $env:ARTIFACT_DIR -Force
             }
           } finally {

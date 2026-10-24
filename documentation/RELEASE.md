@@ -13,8 +13,11 @@ $build = Get-Content ./build/latest-release.json -Raw | ConvertFrom-Json
 
 `scripts/Build-All.cmd` builds both x64 and ARM64 by default. On an x64 PC it
 tests and packages x64, then cross-compiles and packages ARM64 without running it.
-ARM64 packages are marked as not runtime-tested. Build-All checks both toolchains
-and the configured signing identity before starting. The scripts stop on the first
+ARM64 packages are marked as not runtime-tested. Build-All first runs the same
+release-policy, release-upload and installer-layout checks as GitHub, then checks
+both toolchains and the configured signing identity. After packaging each architecture,
+it tests the updater helper against that build's signed MSIX and public certificate.
+The scripts stop on the first
 build or packaging failure and do not upload anything or install WHAT on the build PC.
 
 Choose the `Windows-x64-Setup.exe` file for Intel and AMD PCs, or
@@ -32,9 +35,43 @@ To run the stages separately:
 ./scripts/Build-Installers.ps1
 ```
 
-The `.cmd` launchers run the same scripts in Windows PowerShell. For a
+Build-All requires PowerShell 7, matching GitHub Actions. Its `.cmd` launcher and
+PowerShell script automatically forward to PowerShell 7 when opened from Windows
+PowerShell 5.1. If it is missing, install it with
+`winget install --id Microsoft.PowerShell --source winget`.
+The updater-helper tests deliberately use Windows PowerShell 5.1 because that is
+the shell used by the installed updater.
+
+For a
 prerequisites-only check, use `scripts/Build-All.ps1 -ValidateOnly`. This checks
-dependencies without downloading or building missing ones.
+dependencies and signing without downloading or building missing ones; it does
+not run the validation suite.
+
+For a full build without reusing the CMake/Ninja compilation cache:
+
+```powershell
+./scripts/Build-All.ps1 -Clean
+```
+
+`-Clean` selects a new directory under `build/release/clean-<run>/` for each
+architecture. It keeps previous builds, downloaded toolchains and signing files.
+Fresh compilation can take longer and download project dependencies again.
+The new directories remain available for inspection after the run.
+
+Build-All and GitHub both call `scripts/Invoke-ReleasePipeline.ps1` for the
+Preflight, Build and Package stages. To run only the fast checks in PowerShell 7:
+
+```powershell
+./scripts/Invoke-ReleasePipeline.ps1 -Stage Preflight
+```
+
+Pass `-Tag v<source-version>` to check an intended tag as well. Fixture logs are
+saved under `build/logs/validation/`; deliberately generated errors in passing
+fixtures do not inflate the compiler warning count. GUI runtime tests use D3D11
+software rendering in both environments. This tests rendering correctness, not
+hardware-GPU performance. Local success cannot verify GitHub environment secrets,
+token permissions, service availability or differences in the hosted Windows SDK
+and compiler. Nothing is published by local validation.
 
 Build-All prints the current stage, task and elapsed time. Compilation has a text
 progress bar based on Ninja's completed tasks, updated at five-percent milestones.
@@ -141,7 +178,7 @@ commands remain available; commands still need tools compatible with the PC.
 
 ARM64 uses `update-arm64.json`; x64 retains `update.json`. Asset names include
 the architecture. Both can share a GitHub release, with one common source ZIP.
-The current GitHub build workflow builds x64 only; Build-All builds both locally.
+The GitHub build workflow and local Build-All both build x64 and ARM64.
 To publish both, collect both architecture outputs in one artifact directory before
 running Publish-Release once. It refuses changes to an already published release.
 An updater only accepts its own architecture. Existing x64 installs running
@@ -328,7 +365,7 @@ its tag; no cross-repository token is required.
 
 ## Updates
 
-WHAT checks GitHub Releases shortly after startup and every 24 hours when
+WHAT checks GitHub Releases asynchronously at startup and every four hours when
 background checks are enabled. Stable releases are the default. **Include beta
 updates** adds prereleases; **Choose release** lets the user select an older
 version. Installation and downgrade always require confirmation.

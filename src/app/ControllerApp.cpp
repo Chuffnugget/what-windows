@@ -258,7 +258,8 @@ void Controller::handleAppCommand(const QString &session, const QJsonObject &com
             QTimer::singleShot(250, this, [this, lease, generation] {
                 if (lease->load() && commandEpoch->load() == generation &&
                     (!restartBlocked || !restartBlocked()))
-                    QCoreApplication::quit();
+                    // An approved restart must not be vetoed by taskbar-icon windows.
+                    QCoreApplication::exit(0);
                 else
                     appRestartPending = false;
             });

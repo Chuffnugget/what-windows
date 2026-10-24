@@ -531,6 +531,56 @@ private slots:
         QVERIFY(!updater.info()["canInstall"].toBool());
     }
 
+    void automaticChecksStartQueuedAndRepeatWithoutOverlap() {
+        QTemporaryDir dir;
+        FixtureNetwork network;
+        network.statusCode = 404;
+        UpdateManager updater(dir.path(), false);
+        updater.transport = &network;
+        QVERIFY(network.requests.isEmpty()); // Construction never waits for GitHub.
+        QVERIFY(updater.automaticCheckTimer.isActive());
+        QCOMPARE(updater.automaticCheckTimer.interval(), 4 * 60 * 60 * 1000);
+        QCoreApplication::processEvents();
+        QCOMPARE(network.requests.size(), 1);
+        QTRY_VERIFY(!updater.isBusy());
+
+        // Drive the real timer handler without waiting four hours. The fake reply
+        // completes on the next event-loop turn, leaving a request in flight here.
+        QVERIFY(QMetaObject::invokeMethod(&updater.automaticCheckTimer, "timeout"));
+        QCOMPARE(network.requests.size(), 2);
+        QVERIFY(updater.isBusy());
+        QVERIFY(QMetaObject::invokeMethod(&updater.automaticCheckTimer, "timeout"));
+        updater.check();
+        QCOMPARE(network.requests.size(), 2);
+        QTRY_VERIFY(!updater.isBusy());
+        updater.setAutomatic(false);
+        QVERIFY(QMetaObject::invokeMethod(&updater.automaticCheckTimer, "timeout"));
+        QCOMPARE(network.requests.size(), 2);
+        updater.setAutomatic(true);
+        QVERIFY(QMetaObject::invokeMethod(&updater.automaticCheckTimer, "timeout"));
+        QCOMPARE(network.requests.size(), 3);
+        QTRY_VERIFY(!updater.isBusy());
+    }
+
+    void automaticChecksRespectDisabledPreferenceAtStartup() {
+        QTemporaryDir dir;
+        {
+            UpdateManager updater(dir.path(), true);
+            updater.setAutomatic(false);
+        }
+        FixtureNetwork network;
+        network.statusCode = 404;
+        UpdateManager updater(dir.path(), false);
+        updater.transport = &network;
+        QCoreApplication::processEvents();
+        QVERIFY(network.requests.isEmpty());
+        QVERIFY(QMetaObject::invokeMethod(&updater.automaticCheckTimer, "timeout"));
+        QVERIFY(network.requests.isEmpty());
+        updater.check(); // Manual checks remain available.
+        QCOMPARE(network.requests.size(), 1);
+        QTRY_VERIFY(!updater.isBusy());
+    }
+
     void releaseDiscoveryAndCorruptDownload() {
         QCoreApplication::setApplicationVersion("0.4.9");
         QTemporaryDir dir;

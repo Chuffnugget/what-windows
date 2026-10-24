@@ -28,6 +28,7 @@
 #include <vector>
 #include <QNetworkInterface>
 #include <QJsonDocument>
+#include <QHash>
 #include <QSet>
 #include <QScopeGuard>
 
@@ -439,6 +440,15 @@ QJsonArray WindowsCollector::collect(const QJsonObject &options) {
             networkClock.start();
         PMIB_IF_TABLE2 table = nullptr;
         if (GetIfTable2(&table) == NO_ERROR) {
+            // interfaceFromIndex() rescans every adapter on Windows. Take one
+            // address snapshot per poll, so VPN/adapter count does not multiply
+            // that work. Rebuild it next poll to pick up changed or removed IPs.
+            QHash<int, QStringList> addresses;
+            for (const auto &network : networkInterfaces()) {
+                auto &ips = addresses[network.index()];
+                for (const auto &entry : network.addressEntries())
+                    ips << entry.ip().toString();
+            }
             for (ULONG i = 0; i < table->NumEntries; ++i) {
                 const auto &iface = table->Table[i];
                 if (iface.Type == IF_TYPE_SOFTWARE_LOOPBACK || iface.Type == IF_TYPE_TUNNEL)
@@ -468,10 +478,7 @@ QJsonArray WindowsCollector::collect(const QJsonObject &options) {
                 add(id + "_sent", group, "Bytes sent since adapter reset", double(iface.OutOctets), "number",
                     "B");
                 networkBytes[id] = {iface.InOctets, iface.OutOctets};
-                QStringList ips;
-                const auto qt = QNetworkInterface::interfaceFromIndex(int(iface.InterfaceIndex));
-                for (const auto &entry : qt.addressEntries())
-                    ips << entry.ip().toString();
+                const auto ips = addresses.value(int(iface.InterfaceIndex));
                 add(id + "_ip", group, "IP addresses", ips.join(", ").left(255), "text");
             }
             FreeMibTable(table);

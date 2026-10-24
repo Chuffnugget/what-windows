@@ -5,13 +5,14 @@ $root = Split-Path $PSScriptRoot -Parent
 $fixture = Join-Path $OutputDirectory 'worker with spaces.ps1'
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 @'
-param([switch]$BuildWorker, [string]$Architecture, [switch]$ValidateOnly)
+param([switch]$BuildWorker, [string]$Architecture, [switch]$ValidateOnly, [switch]$Clean)
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 if (!$BuildWorker) { throw 'Worker flag missing' }
 if ([Console]::In.ReadToEnd() -ne '') { throw 'Unexpected standard input' }
 Write-Host 'WHAT build stage: Prerequisites'
 Write-Host ('Architecture=' + $Architecture + '; ValidateOnly=' + [bool]$ValidateOnly)
+Write-Host ('Clean=' + [bool]$Clean)
 Write-Host ('Unicode=' + [char]0x00e9)
 if ($Architecture -eq 'all') {
     $shell = Join-Path $PSHOME 'powershell.exe'
@@ -48,9 +49,10 @@ foreach ($case in @(
     @{ architecture='arm64'; validate=$true; exit=7 }
 )) {
     $messages = @()
-    $exitCode = Invoke-BuildProgress -ScriptPath $fixture -Architecture $case.architecture -ValidateOnly:$case.validate -HeartbeatSeconds 1 -InformationVariable messages 6>$null
+    $exitCode = Invoke-BuildProgress -ScriptPath $fixture -Architecture $case.architecture -ValidateOnly:$case.validate -Clean:(!$case.validate) -HeartbeatSeconds 1 -InformationVariable messages 6>$null
     if ($exitCode -ne $case.exit) { throw 'Worker exit code was not preserved.' }
     $text = ($messages | ForEach-Object { $_.ToString() }) -join "`n"
+    if (!$text.Contains('Clean=' + (!$case.validate))) { throw 'Clean option did not reach the worker.' }
     foreach ($expected in @('stdout-999:', 'stderr-999:', 'last line without newline', '[Build active:', ('Unicode=' + [char]0x00e9))) {
         if (!$text.Contains($expected)) { throw "Missing worker output: $expected" }
     }

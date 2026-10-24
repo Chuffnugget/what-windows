@@ -631,7 +631,7 @@ DragScrollView {
                 }
 
                 OptionCheckBox {
-                    ToolTip.text: "Check for releases in the background. WHAT still asks before installing an update."
+                    ToolTip.text: "Check for releases asynchronously at startup and every four hours. WHAT still asks before installing an update."
                     text: "Check GitHub for Updates Automatically"
                     checked: updater.info.automatic
                     onClicked: updater.setAutomatic(checked)

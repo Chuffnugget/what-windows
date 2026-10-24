@@ -5555,6 +5555,31 @@ private slots:
         window->hide();
     }
 
+    void confirmedQuitExitsWithExtraAppIcons_data() {
+        QTest::addColumn<int>("icons");
+        QTest::newRow("no-extra-icons") << 0;
+        QTest::newRow("two-extra-icons") << 2;
+    }
+
+    void confirmedQuitExitsWithExtraAppIcons() {
+        QFETCH(int, icons);
+        QProcess process;
+        process.setProgram(QCoreApplication::applicationFilePath());
+        process.setArguments({"--quit-with-app-icons", QString::number(icons)});
+        process.start();
+        QVERIFY(process.waitForStarted(5000));
+        const bool finished = process.waitForFinished(20000);
+        if (!finished) {
+            process.kill();
+            process.waitForFinished(5000);
+        }
+        const auto output = "Exit code " + QByteArray::number(process.exitCode()) + ": "
+            + process.readAllStandardError() + process.readAllStandardOutput();
+        QVERIFY2(finished, output.constData());
+        QCOMPARE(process.exitStatus(), QProcess::NormalExit);
+        QVERIFY2(process.exitCode() == 0, output.constData());
+    }
+
     void quitCancellationWhileStreaming() {
         QTemporaryDir dir;
         Controller local(dir.path(), true);
@@ -7225,6 +7250,9 @@ private slots:
                 QCOMPARE(logo->mapToItem(sidebar, QPointF(logo->width() / 2, 0)).x(), centre);
                 auto *badge = visualItem(sidebar, "updateBadge");
                 QVERIFY(badge && badge->isVisible());
+                auto *background = qvariant_cast<QQuickItem *>(badge->property("background"));
+                QVERIFY(background);
+                QVERIFY(!(background->flags() & QQuickItem::ItemHasContents));
                 QCOMPARE(badge->mapToItem(sidebar, QPointF(badge->width() / 2, 0)).x(), centre);
                 const auto logoRect = logo->mapRectToItem(sidebar, logo->boundingRect());
                 const auto badgeRect = badge->mapRectToItem(sidebar, badge->boundingRect());
@@ -12220,6 +12248,47 @@ private slots:
         window->hide();
     }
 
+    void windowsNetworkAddressesUseOneScanPerPoll() {
+        WindowsCollector collector;
+        const auto liveInterfaces = QNetworkInterface::allInterfaces();
+        int scans = 0;
+        bool supplyAddresses = true;
+        collector.networkInterfaces = [&] {
+            ++scans;
+            return supplyAddresses ? liveInterfaces : QList<QNetworkInterface>{};
+        };
+        const QJsonObject options{{"wifi", false}, {"_fast_only", true}};
+        const auto ipRows = [](const QJsonArray &readings) {
+            QMap<QString, QJsonObject> result;
+            for (const auto &value : readings) {
+                const auto reading = value.toObject();
+                const auto id = reading["id"].toString();
+                if (id.startsWith("win_net_") && id.endsWith("_ip"))
+                    result.insert(id, reading);
+            }
+            return result;
+        };
+
+        const auto first = ipRows(collector.collect(options));
+        QCOMPARE(scans, 1);
+        if (first.isEmpty())
+            QSKIP("No eligible Windows network adapters available");
+        // Simulate address removal, then restoration. The index must be fresh
+        // on every poll and keep the existing entity IDs and text semantics.
+        supplyAddresses = false;
+        const auto cleared = ipRows(collector.collect(options));
+        QCOMPARE(scans, 2);
+        QCOMPARE(cleared.keys(), first.keys());
+        for (const auto &reading : cleared) {
+            QCOMPARE(reading["kind"].toString(), QString("text"));
+            QVERIFY(reading["available"].toBool());
+            QCOMPARE(reading["value"].toString(), QString());
+        }
+        supplyAddresses = true;
+        QCOMPARE(ipRows(collector.collect(options)), first);
+        QCOMPARE(scans, 3);
+    }
+
     void windowsWithoutHwinfo() {
         auto snapshot = c->snapshot();
         QVERIFY(!snapshot["hwinfo_enabled"].toBool());
@@ -14315,6 +14384,53 @@ int main(int argc, char **argv) {
     QApplication app(argc, argv);
     QQuickStyle::setStyle("WHATStyle");
     QCoreApplication::setApplicationVersion(WHAT_VERSION);
+    if (argc == 3 && QByteArray(argv[1]) == "--quit-with-app-icons") {
+        // Use an actual application event loop: spying on windowQuitReady alone
+        // misses native indicator windows vetoing QApplication::quit().
+        app.setQuitOnLastWindowClosed(false);
+        QTemporaryDir dir;
+        Controller local(dir.path(), true);
+        local.stopService();
+        UpdateManager updater(dir.path(), true);
+        TaskbarIconManager icons(dir.filePath("taskbar.yaml"), false);
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{"controller", QVariant::fromValue(&local)},
+                                     {"updater", QVariant::fromValue(&updater)}});
+        engine.load(QUrl("qrc:/qml/Main.qml"));
+        if (engine.rootObjects().isEmpty())
+            return 2;
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QObject::connect(window, SIGNAL(windowQuitReady()), &app, SLOT(exit()), Qt::QueuedConnection);
+        icons.attachMainWindow(window);
+        QObject::connect(&icons, &TaskbarIconManager::openRequested, window,
+                         [window] { restoreWhatWindow(window); });
+        const int count = QByteArray(argv[2]).toInt();
+        icons.setReadings({QVariantMap{{"id", "cpu"}, {"name", "Core Max"},
+            {"kind", "number"}, {"unit", "C"}, {"value", 54.3}, {"available", true}}});
+        for (int i = 0; i < count; ++i)
+            icons.addSelected({"cpu"});
+        restoreWhatWindow(window);
+        QTimer ready;
+        QObject::connect(&ready, &QTimer::timeout, window, [&] {
+            int visibleIcons = 0;
+            for (auto *widget : QApplication::topLevelWidgets())
+                if (widget->objectName().startsWith("taskbarPanel_") && widget->isVisible())
+                    ++visibleIcons;
+            if (!window->isExposed() || visibleIcons != count)
+                return;
+            ready.stop();
+            QMetaObject::invokeMethod(window, "openQuitConfirmation");
+            auto *confirm = window->findChild<QObject *>("confirmQuit");
+            if (!confirm || !QMetaObject::invokeMethod(confirm, "clicked"))
+                app.exit(3);
+        });
+        ready.start(20);
+        QTimer::singleShot(8000, &app, [&] {
+            qWarning("Confirmed Quit did not exit the application with %d extra app icons", count);
+            app.exit(4);
+        });
+        return app.exec();
+    }
     ControllerTests tests;
     return QTest::qExec(&tests, argc, argv);
 }

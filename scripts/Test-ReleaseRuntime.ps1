@@ -33,7 +33,12 @@ $oldPlugins = $env:QT_PLUGIN_PATH
 $oldQmlImports = $env:QML_IMPORT_PATH
 $oldQml2Imports = $env:QML2_IMPORT_PATH
 $oldPlatformPlugins = $env:QT_QPA_PLATFORM_PLUGIN_PATH
+$oldBackend = $env:QSG_RHI_BACKEND
+$oldSoftwareRenderer = $env:QSG_RHI_PREFER_SOFTWARE_RENDERER
 try {
+    # Match the hosted Windows runner even on a developer PC with a hardware GPU.
+    $env:QSG_RHI_BACKEND = 'd3d11'
+    $env:QSG_RHI_PREFER_SOFTWARE_RENDERER = '1'
     # Native tests must use the deployment's DLLs and QML, not the Qt kit.
     $env:PATH = "$runtime;$env:SystemRoot/System32;$env:SystemRoot"
     $env:QT_PLUGIN_PATH = $runtime
@@ -68,4 +73,6 @@ try {
     $env:QML_IMPORT_PATH = $oldQmlImports
     $env:QML2_IMPORT_PATH = $oldQml2Imports
     $env:QT_QPA_PLATFORM_PLUGIN_PATH = $oldPlatformPlugins
+    $env:QSG_RHI_BACKEND = $oldBackend
+    $env:QSG_RHI_PREFER_SOFTWARE_RENDERER = $oldSoftwareRenderer
 }

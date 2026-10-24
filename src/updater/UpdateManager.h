@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QDateTime>
+#include <QTimer>
 #include <functional>
 
 // GUI-thread update state. Network requests are asynchronous; download verification and
@@ -69,6 +70,7 @@ private:
     QSettings settings;
     QNetworkAccessManager network;
     QNetworkAccessManager *transport = &network;
+    QTimer automaticCheckTimer;
     QString announcedVersion;
     QString profile, family, available, message = "Updates have not been checked yet.";
     QJsonObject release, manifest;

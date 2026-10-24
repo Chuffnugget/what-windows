@@ -66,13 +66,53 @@ by a firewall, router or VLAN. The integration requires Home Assistant 2026.9+.
 
 ## Key Features
 
-Add sensors like CPU and GPU temperatures to System Tray Icons or Taskbar Icon.
+**Live System Tray and Taskbar Icons**
+
+Keep CPU temperatures, GPU hotspot readings and other sensor values visible while using your PC. Customise the text colour, background and font, replace WHAT's main icons, or add separate icons for individual readings.
 
 ![Windows taskbar displaying custom System Tray Icons](documentation/images/whatSystemTray.png)
 
 ![Windows taskbar displaying custom App Icons](documentation/images/whatAppIcon.png)
 
-[Still writing README, check back later!]
+**Hardware and Application Integrations**
+
+Connect Windows, HWiNFO, Core Temp, NVIDIA, BEACN, Corsair iCUE and Wallpaper Engine to Home Assistant.
+
+**Sensor Browser**
+
+Search and filter your readings, mark favourites, choose what to share, and expand supported controls to adjust them directly inside WHAT.
+
+**PC Controls**
+
+Control supported audio devices, media playback, displays, RGB lighting, wallpapers and Windows actions from Home Assistant.
+
+**Custom Sensors and Commands**
+
+Create sensors from processes, services, files, performance counters, WMI or scripts. Save named commands in WHAT and expose them as Home Assistant buttons.
+
+**Notifications and Text-to-Speech**
+
+Send notifications and spoken announcements from Home Assistant to your PC.
+
+**Home Assistant Web**
+
+Open your dashboard inside WHAT, in a floating picture-in-picture window, as a fullscreen overlay or on your desktop. Configure hotkeys, dashboard zoom and browser settings.
+
+**Multiple PCs and Home Assistant Installations**
+
+Connect several PCs running WHAT to one Home Assistant installation, share one PC with several Home Assistant installations, or combine both. Each PC has its own readings, controls and pairing details. Connections use WHAT API or MQTT.
+
+**Sharing and Permissions**
+
+Choose which readings are shared locally or remotely, and explicitly enable the control permissions your setup needs.
+
+**Connection Monitoring and Diagnostics**
+
+See connection status, time since the last response and live heartbeat traces. Inspect module health, activity logs and detailed PC specifications.
+
+**Built-in Updater and Configuration Backup**
+
+Check for updates automatically in the background and install them from within the installed app, with confirmation before installation. Export and import your configuration for backup or reuse.
 
 ## Planned features
 
@@ -212,7 +252,9 @@ The checkout can live in any directory. Tool locations are detected or configure
 in the ignored `release.local.json`; relative paths in that file start at this
 repository. The first build downloads dependencies. See the
 [release guide](documentation/RELEASE.md) for prerequisites and Qt Creator setup.
-`Build-All.cmd` builds x64 and ARM64 and requires a signing identity. On x64 it
+`Build-All.cmd` requires PowerShell 7 and a signing identity, and runs the same
+validation stages as GitHub. Use `-Clean` for a fresh compilation directory.
+It builds x64 and ARM64. On x64 it
 creates signed installers for both architectures. x64 runs its runtime tests;
 ARM64 is cross-compiled and packaged with runtime testing marked as pending.
 Use `Build-All.cmd -Architecture x64` for x64 only. Each run saves a compilation

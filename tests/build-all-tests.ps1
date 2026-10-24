@@ -4,6 +4,21 @@ $root = Split-Path $PSScriptRoot -Parent
 $fixture = Join-Path $OutputDirectory 'clone with spaces'
 New-Item -ItemType Directory -Path "$fixture/scripts", "$fixture/build" -Force | Out-Null
 Copy-Item -LiteralPath "$root/scripts/Build-All.ps1", "$root/scripts/Build.Report.ps1" -Destination "$fixture/scripts"
+@'
+param($Stage, $Architecture, $ResultPath, $ReleaseDirectory, [switch]$Clean)
+switch ($Stage) {
+    'Preflight' {
+        $fixtureCalls.Add('preflight')
+        if ($fixtureFailure -eq 'preflight') { throw 'fixture preflight failure' }
+    }
+    'Build' {
+        if ([bool]$Clean -ne [bool]$fixtureClean) { throw 'Clean option was not forwarded.' }
+        & "$PSScriptRoot/Build-Release.ps1" -Architecture $Architecture -ResultPath $ResultPath
+    }
+    'Package' { & "$PSScriptRoot/Build-Installers.ps1" -Architecture $Architecture -ReleaseDirectory $ReleaseDirectory }
+    default { throw 'Unexpected pipeline stage.' }
+}
+'@ | Set-Content -LiteralPath "$fixture/scripts/Invoke-ReleasePipeline.ps1" -Encoding UTF8
 
 # Exercise the real orchestrator with only its build/signing boundaries replaced.
 # Nothing is compiled, signed, installed or uploaded by these tests.
@@ -157,6 +172,8 @@ foreach ($group in ($sourceMessages | Group-Object -Property { $_.Source })) {
 Write-Host 'PASS: dependency, WHAT, test, configuration, unknown and ARM64 warning classification.'
 
 $cases = @(
+    @{ Name='preflight failure'; Arguments=@{}; Failure='preflight'; Calls='' },
+    @{ Name='clean x64'; Arguments=@{Architecture='x64'; Clean=$true}; Calls='tools:x64,signing,build:x64,package:x64' },
     @{ Name='default cross build'; Arguments=@{}; Calls='tools:x64,tools:arm64,signing,build:x64,package:x64,build:arm64,package:arm64' },
     @{ Name='explicit all'; Arguments=@{Architecture='all'}; Calls='tools:x64,tools:arm64,signing,build:x64,package:x64,build:arm64,package:arm64' },
     @{ Name='x64 only'; Arguments=@{Architecture='x64'}; Calls='tools:x64,signing,build:x64,package:x64' },
@@ -186,10 +203,13 @@ try {
         $fixtureFailure = $case.Failure
         $arguments = $case.Arguments
         $fixtureValidateOnly = [bool]$arguments.ValidateOnly
+        $fixtureClean = [bool]$arguments.Clean
         $failure = $null
         try { & "$fixture/scripts/Build-All.ps1" -BuildWorker @arguments 6>$null 3>$null }
         catch { $failure = $_ }
-        if (($fixtureCalls -join ',') -ne $case.Calls) {
+        $expectedCalls = $case.Calls
+        if (!$fixtureValidateOnly) { $expectedCalls = (@('preflight', $expectedCalls) | Where-Object { $_ }) -join ',' }
+        if (($fixtureCalls -join ',') -ne $expectedCalls) {
             throw "Wrong build order for $($case.Name): $($fixtureCalls -join ','). $failure"
         }
         if ([bool]$failure -ne [bool]$case.Failure) { throw "Wrong outcome for $($case.Name): $failure" }

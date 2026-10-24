@@ -5,6 +5,7 @@ function Invoke-BuildProgress {
         [Parameter(Mandatory)][string]$ScriptPath,
         [ValidateSet('all', 'x64', 'arm64')][string]$Architecture = 'all',
         [switch]$ValidateOnly,
+        [switch]$Clean,
         [ValidateRange(1, 300)][int]$HeartbeatSeconds = 15
     )
 
@@ -36,6 +37,7 @@ public static class WhatBuildConsole
 
     $stages = @('Prerequisites', 'Signing')
     if (!$ValidateOnly) {
+        $stages = @('Preflight') + $stages
         $targets = if ($Architecture -eq 'all') { @('x64', 'arm64') } else { @($Architecture) }
         foreach ($target in $targets) { $stages += "$target Build", "$target Packaging" }
     }
@@ -60,6 +62,7 @@ public static class WhatBuildConsole
         $process.StartInfo.Arguments = '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -OutputFormat Text -File "' +
             (Resolve-Path -LiteralPath $ScriptPath).Path + '" -BuildWorker -Architecture ' + $Architecture
         if ($ValidateOnly) { $process.StartInfo.Arguments += ' -ValidateOnly' }
+        if ($Clean) { $process.StartInfo.Arguments += ' -Clean' }
         $process.StartInfo.WorkingDirectory = (Get-Location).ProviderPath
         $process.StartInfo.UseShellExecute = $false
         $process.StartInfo.CreateNoWindow = $true

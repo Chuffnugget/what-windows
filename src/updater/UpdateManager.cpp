@@ -51,17 +51,17 @@ UpdateManager::UpdateManager(const QString &path, bool testing, QObject *parent)
     // Left behind by development builds that could sign in to private releases.
     settings.remove("updates/private");
     if (!testMode) {
-        QTimer::singleShot(3000, this, [this] {
+        // Queue the first asynchronous request once startup has connected the UI.
+        QTimer::singleShot(0, this, [this] {
             if (settings.value("updates/automatic", true).toBool())
                 check();
         });
-        auto *timer = new QTimer(this);
-        connect(timer, &QTimer::timeout, this, [this] {
+        connect(&automaticCheckTimer, &QTimer::timeout, this, [this] {
             emit changed(); // Refresh certificate dates even when automatic checks are off.
             if (settings.value("updates/automatic", true).toBool())
                 check();
         });
-        timer->start(24 * 60 * 60 * 1000);
+        automaticCheckTimer.start(4 * 60 * 60 * 1000);
     }
 }
 
@@ -236,7 +236,7 @@ void UpdateManager::setBetaUpdates(bool enabled) {
     announcedVersion.clear();
     latestCheckedVersion.clear();
     latestCheckedAt.clear();
-    // Refresh immediately when changing channel; do not wait for the daily timer.
+    // Refresh immediately when changing channel; do not wait for the periodic check.
     if (!testMode)
         check();
     else
@@ -792,7 +792,9 @@ void UpdateManager::install(const QString &expectedVersion) {
                     ack.close();
                     timer->stop();
                     status("Installing update; WHAT will restart.");
-                    QCoreApplication::quit();
+                    // The approved update must exit even with extra taskbar icons,
+                    // whose backing windows reject ordinary close requests.
+                    QCoreApplication::exit(0);
                     return;
                 } else if (ticks >= 120) {
                     timer->stop();

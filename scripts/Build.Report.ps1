@@ -6,6 +6,7 @@ function New-BuildReport([string]$Root, [string[]]$Architectures, [bool]$Validat
     $stages = [Collections.Generic.List[object]]::new()
     $keys = @('Prerequisites', 'Signing')
     if (!$ValidateOnly) {
+        $keys = @('Preflight') + $keys
         foreach ($architecture in $Architectures) { $keys += "$architecture Build", "$architecture Packaging" }
     }
     foreach ($key in $keys) {
