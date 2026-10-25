@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.IO.Compression;
@@ -213,11 +214,92 @@ internal static class SetupLayoutTests {
         Console.WriteLine("PASS: embedded MSIX architecture validation");
     }
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern bool SetProp(IntPtr window, string name, IntPtr value);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern uint RegisterWindowMessage(string name);
+
+    sealed class ShutdownFixtureWindow : NativeWindow, IDisposable {
+        readonly uint quitMessage = RegisterWindowMessage("WHAT.QuitForInstaller.1");
+        internal ShutdownFixtureWindow(bool supported) {
+            // Hidden native window: exercise the real cross-process request
+            // without launching WHAT, showing prompts or installing a package.
+            CreateHandle(new CreateParams { Caption = "WHAT shutdown fixture" });
+            SetProp(Handle, "WHAT.MainWindow", new IntPtr(1));
+            if (supported) SetProp(Handle, "WHAT.InstallerQuit", new IntPtr(1));
+        }
+        protected override void WndProc(ref Message message) {
+            if ((uint)message.Msg == quitMessage) {
+                Console.WriteLine("dedicated shutdown received");
+                Application.ExitThread();
+                return;
+            }
+            if (message.Msg == 0x0010) return; // Normal window close is deliberately vetoed.
+            base.WndProc(ref message);
+        }
+        public void Dispose() { DestroyHandle(); }
+    }
+
+    static int RunShutdownFixture(string mode) {
+        if (mode == "stalled" || mode == "exited") {
+            Console.WriteLine("ready");
+            Console.Out.Flush();
+            if (mode == "stalled") System.Threading.Thread.Sleep(System.Threading.Timeout.Infinite);
+            return 0;
+        }
+        using (var window = new ShutdownFixtureWindow(mode == "current")) {
+            Console.WriteLine("ready");
+            Console.Out.Flush();
+            Application.Run();
+        }
+        Console.WriteLine("normal cleanup completed");
+        return 0;
+    }
+
+    static void CheckShutdown() {
+        foreach (string mode in new[] { "current", "legacy", "stalled", "exited" }) {
+            var start = new ProcessStartInfo {
+                FileName = Assembly.GetExecutingAssembly().Location,
+                Arguments = "--shutdown-fixture " + mode,
+                UseShellExecute = false, CreateNoWindow = true,
+                RedirectStandardOutput = true, RedirectStandardError = true
+            };
+            using (var process = Process.Start(start)) {
+                try {
+                    var ready = process.StandardOutput.ReadLineAsync();
+                    if (!ready.Wait(5000) || ready.Result != "ready")
+                        throw new Exception("Shutdown fixture did not start: " + mode);
+                    if (mode == "exited" && !process.WaitForExit(5000))
+                        throw new Exception("Already-exited fixture did not exit.");
+                    var logs = new List<string>();
+                    SetupProgram.CloseRunningProcess(process, logs.Add, mode == "stalled" ? 100 : 3000, 5000);
+                    if (!process.HasExited) throw new Exception("Shutdown left the fixture running: " + mode);
+                    string output = process.StandardOutput.ReadToEnd();
+                    string log = String.Join("\n", logs);
+                    if (mode == "current" && !output.Contains("dedicated shutdown received"))
+                        throw new Exception("Setup did not use the dedicated WHAT shutdown message.");
+                    if ((mode == "current" || mode == "legacy") &&
+                        (process.ExitCode != 0 || !output.Contains("normal cleanup completed") || log.Contains("forced termination")))
+                        throw new Exception("Graceful shutdown fell back to killing the fixture: " + mode);
+                    if (mode == "stalled" && !log.Contains("forced termination completed"))
+                        throw new Exception("The stalled-process fallback was not exercised.");
+                    if (mode == "exited" && !log.Contains("already exited"))
+                        throw new Exception("An exited process was sent another shutdown request.");
+                    Console.WriteLine("PASS: installer shutdown " + mode);
+                } finally {
+                    if (!process.HasExited) { process.Kill(); process.WaitForExit(5000); }
+                }
+            }
+        }
+    }
+
     [STAThread]
     static int Main(string[] args) {
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
+        if (args.Length == 2 && args[0] == "--shutdown-fixture") return RunShutdownFixture(args[1]);
         try {
+            CheckShutdown();
             CheckMetrics(args[1]);
             CheckPackageArchitecture();
             CheckLogRetention();

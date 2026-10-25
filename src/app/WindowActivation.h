@@ -10,6 +10,13 @@ inline UINT whatOpenWindowMessage() {
     return message;
 }
 
+// Setup sends this only after the user approves closing WHAT for installation.
+// Unlike WM_QUIT, it does not ask auxiliary icon windows to accept a close event.
+inline UINT whatInstallerQuitMessage() {
+    static const UINT message = RegisterWindowMessageW(L"WHAT.QuitForInstaller.1");
+    return message;
+}
+
 inline bool notifyExistingWhatWindow(qint64 processId) {
     struct Search {
         DWORD pid;

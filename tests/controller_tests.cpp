@@ -181,9 +181,9 @@ class ControllerTests : public QObject {
 
 private slots:
     void init() {
-        // This teardown warning is not delivered through QQmlEngine::warnings.
+        // These delegate lifecycle warnings bypass QQmlEngine::warnings.
         QTest::failOnWarning(QRegularExpression(
-            ".*items in the process of being created at engine destruction.*"));
+            ".*(items in the process of being created at engine destruction|DelegateModel::cancel: index out range).*"));
     }
 
     void beacnFileVerificationExplainsFailure();
@@ -5561,6 +5561,28 @@ private slots:
         QTest::newRow("two-extra-icons") << 2;
     }
 
+    void installerQuitExitsWithExtraAppIcons_data() {
+        confirmedQuitExitsWithExtraAppIcons_data();
+    }
+
+    void installerQuitExitsWithExtraAppIcons() {
+        QFETCH(int, icons);
+        QProcess process;
+        process.setProgram(QCoreApplication::applicationFilePath());
+        process.setArguments({"--installer-quit-with-app-icons", QString::number(icons)});
+        process.start();
+        QVERIFY(process.waitForStarted(5000));
+        const bool finished = process.waitForFinished(20000);
+        if (!finished) {
+            process.kill();
+            process.waitForFinished(5000);
+        }
+        const auto output = process.readAllStandardError() + process.readAllStandardOutput();
+        QVERIFY2(finished, output.constData());
+        QCOMPARE(process.exitStatus(), QProcess::NormalExit);
+        QVERIFY2(process.exitCode() == 0, output.constData());
+    }
+
     void confirmedQuitExitsWithExtraAppIcons() {
         QFETCH(int, icons);
         QProcess process;
@@ -5950,6 +5972,9 @@ private slots:
     }
 
     void sensorTrayNativeUpdates() {
+        // Qt reports tray support even when Explorer is absent on an isolated desktop.
+        if (!FindWindowW(L"Shell_TrayWnd", nullptr))
+            QSKIP("Requires an Explorer notification area on this desktop.");
         QTemporaryDir dir;
         SensorTrayManager manager(dir.filePath("settings.yaml"), false);
         QVariantMap row{{"id", "fixture"}, {"name", "Tray test"}, {"kind", "number"},
@@ -6423,6 +6448,10 @@ private slots:
         engine.setInitialProperties(
             {{"controller", QVariant::fromValue(&local)}, {"updater", QVariant::fromValue(&updater)}});
         engine.load(QUrl("qrc:/qml/Main.qml"));
+        // This fixture tests control state, not asynchronous row prefetch. Keep
+        // delegate creation synchronous while replacing its synthetic catalogue;
+        // denseSensorBrowser and cachedSensorCheckboxCancellation cover async work.
+        engine.setIncubationController(nullptr);
         QVERIFY(!engine.rootObjects().isEmpty());
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
         QVERIFY(window);
@@ -8660,7 +8689,14 @@ private slots:
         QCOMPARE(warnings.size(), 0);
     }
 
+    void sharedControlInteractions_data() {
+        QTest::addColumn<bool>("interruptActivation");
+        QTest::newRow("continuous-focus") << false;
+        QTest::newRow("reactivated-window") << true;
+    }
+
     void sharedControlInteractions() {
+        QFETCH(bool, interruptActivation);
         QQmlApplicationEngine engine;
         QSignalSpy warnings(&engine, &QQmlEngine::warnings);
         engine.loadData(R"(
@@ -8706,12 +8742,30 @@ private slots:
         QTRY_COMPARE(choice->property("currentIndex").toInt(), 199);
         QCOMPARE(choice->property("displayText").toString(), QString("Reading 199"));
         QTRY_VERIFY(!popup->property("visible").toBool());
+        QWindow interruption;
+        if (interruptActivation) {
+            interruption.resize(160, 100);
+            interruption.show();
+            interruption.requestActivate();
+            QVERIFY(QTest::qWaitForWindowActive(&interruption));
+            QVERIFY(!window->isActive());
+        }
+        // A desktop activation change during the close transition leaves native
+        // key events without a target. Restore window activation, but still require
+        // the control to retain focus itself before exercising the second open.
+        window->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(window));
+        QTRY_COMPARE(window->activeFocusItem(), choice);
+        interruption.hide();
         QTest::keyClick(window, Qt::Key_Space);
         QTRY_VERIFY(popup->property("opened").toBool());
         QTest::keyClick(window, Qt::Key_Home);
         QTest::keyClick(window, Qt::Key_Escape);
         QTRY_VERIFY(!popup->property("visible").toBool());
         QCOMPARE(choice->property("currentIndex").toInt(), 199);
+        window->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(window));
+        QTRY_COMPARE(window->activeFocusItem(), choice);
 
         QTest::keyClick(window, Qt::Key_Tab);
         auto *field = window->findChild<QQuickItem *>("field");
@@ -10762,6 +10816,10 @@ private slots:
         engine.setInitialProperties(
             {{"controller", QVariant::fromValue(&local)}, {"updater", QVariant::fromValue(&updater)}});
         engine.load(QUrl("qrc:/qml/Main.qml"));
+        // This fixture tests control state, not asynchronous row prefetch. Keep
+        // delegate creation synchronous while replacing its synthetic catalogue;
+        // denseSensorBrowser and cachedSensorCheckboxCancellation cover async work.
+        engine.setIncubationController(nullptr);
         QVERIFY(!engine.rootObjects().isEmpty());
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
         QVERIFY(window);
@@ -10800,13 +10858,16 @@ private slots:
         fixture.lightingMode = 0;
         local.acceptIcueAutomation(api.poll(true));
         QTRY_VERIFY(!editor || !editor->isEnabled());
-        local.setIcueOption("automation", false);
-        QVERIFY(local.icueLightingRow("icue_lighting_control_Color1").isEmpty());
-        // Disabling the module rebuilds the browser, including its cached rows.
+        // Dispose the view before disabling the fixture's data source. Qt may
+        // still hold a cached-row request even after incubation has completed;
+        // clearing the model first leaves that request with an invalid index.
         QTRY_VERIFY(!local.browserJob.isRunning() && !local.browserSearchJob.isRunning());
         if (auto *incubation = engine.incubationController())
             QTRY_COMPARE_WITH_TIMEOUT(incubation->incubatingObjectCount(), 0, 5000);
         window->hide();
+        delete window;
+        local.setIcueOption("automation", false);
+        QVERIFY(local.icueLightingRow("icue_lighting_control_Color1").isEmpty());
     }
 
     void qmlAutomationSelectorAndModules() {
@@ -10841,6 +10902,10 @@ private slots:
         engine.setInitialProperties(
             {{"controller", QVariant::fromValue(&local)}, {"updater", QVariant::fromValue(&updater)}});
         engine.load(QUrl("qrc:/qml/Main.qml"));
+        // This fixture tests control state, not asynchronous row prefetch. Keep
+        // delegate creation synchronous while replacing its synthetic catalogue;
+        // denseSensorBrowser and cachedSensorCheckboxCancellation cover async work.
+        engine.setIncubationController(nullptr);
         QVERIFY(!engine.rootObjects().isEmpty());
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
         QVERIFY(window);
@@ -12935,30 +13000,45 @@ private slots:
                 for (const auto &reading : frame["sensors"].toArray())
                     if (reading.toObject()["id"] == "win_stream" &&
                         reading.toObject()["value"].toInt() == expected)
-                        return true;
+                        return frame;
             }
-            return false;
+            return QJsonObject{};
         };
-        QTRY_VERIFY_WITH_TIMEOUT(receivedValue(2), 1000);
-        const auto delta = QJsonDocument::fromJson(messages.last()[0].toString().toUtf8()).object();
+        QJsonObject delta;
+        QTRY_VERIFY_WITH_TIMEOUT(!(delta = receivedValue(2)).isEmpty(), 1000);
         QCOMPARE(delta["type"].toString(), "delta");
         QCOMPARE(delta["sensors"].toArray().size(), 1);
         QCOMPARE(delta["sensors"].toArray()[0].toObject()["value"].toInt(), 2);
         qInfo("Loopback sample-to-frame latency: %lld ms", elapsed.elapsed());
         messages.clear();
+        // Keep a valid event frame ahead of the asynchronous selection change.
+        // A receiver may see metadata or events before the requested removal.
+        c->publishEvent({});
+        QTRY_VERIFY_WITH_TIMEOUT(!messages.empty(), 1000);
+        QVERIFY(QJsonDocument::fromJson(messages.last()[0].toString().toUtf8())
+                    .object()["removed"].toArray().isEmpty());
         c->selected.clear();
         c->publish();
-        QTRY_VERIFY_WITH_TIMEOUT(!messages.empty(), 1000);
-        const auto removed = QJsonDocument::fromJson(messages.last()[0].toString().toUtf8()).object();
-        QVERIFY(removed["removed"].toArray().contains("win_stream"));
+        auto receivedRemoval = [&] {
+            for (const auto &message : messages) {
+                const auto frame = QJsonDocument::fromJson(message[0].toString().toUtf8()).object();
+                if (frame["removed"].toArray().contains("win_stream"))
+                    return frame;
+            }
+            return QJsonObject{};
+        };
+        QJsonObject removed;
+        QTRY_VERIFY_WITH_TIMEOUT(!(removed = receivedRemoval()).isEmpty(), 1000);
+        QCOMPARE(removed["type"].toString(), "delta");
+        QCOMPARE(removed["removed"].toArray(), QJsonArray{"win_stream"});
+        QVERIFY(removed["sequence"].toInt() > delta["sequence"].toInt());
         messages.clear();
         c->selected = {"win_stream"};
         c->publishEvent({"win_stream"});
-        QTRY_VERIFY_WITH_TIMEOUT(!messages.empty(), 1000);
-        QVERIFY(QJsonDocument::fromJson(messages.last()[0].toString().toUtf8())
-                    .object()["sensors"]
-                    .toArray()
-                    .size() == 1);
+        QJsonObject restored;
+        QTRY_VERIFY_WITH_TIMEOUT(!(restored = receivedValue(2)).isEmpty(), 1000);
+        QCOMPARE(restored["type"].toString(), "delta");
+        QCOMPARE(restored["sensors"].toArray().size(), 1);
         messages.clear();
         for (int value : {3, 4, 5}) {
             c->catalog["win_stream"]["value"] = value;
@@ -14384,7 +14464,8 @@ int main(int argc, char **argv) {
     QApplication app(argc, argv);
     QQuickStyle::setStyle("WHATStyle");
     QCoreApplication::setApplicationVersion(WHAT_VERSION);
-    if (argc == 3 && QByteArray(argv[1]) == "--quit-with-app-icons") {
+    const bool installerQuit = argc == 3 && QByteArray(argv[1]) == "--installer-quit-with-app-icons";
+    if (argc == 3 && (installerQuit || QByteArray(argv[1]) == "--quit-with-app-icons")) {
         // Use an actual application event loop: spying on windowQuitReady alone
         // misses native indicator windows vetoing QApplication::quit().
         app.setQuitOnLastWindowClosed(false);
@@ -14401,6 +14482,7 @@ int main(int argc, char **argv) {
             return 2;
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
         QObject::connect(window, SIGNAL(windowQuitReady()), &app, SLOT(exit()), Qt::QueuedConnection);
+        WindowFrame frame(reinterpret_cast<HWND>(window->winId()));
         icons.attachMainWindow(window);
         QObject::connect(&icons, &TaskbarIconManager::openRequested, window,
                          [window] { restoreWhatWindow(window); });
@@ -14420,9 +14502,21 @@ int main(int argc, char **argv) {
                 return;
             ready.stop();
             QMetaObject::invokeMethod(window, "openQuitConfirmation");
-            auto *confirm = window->findChild<QObject *>("confirmQuit");
-            if (!confirm || !QMetaObject::invokeMethod(confirm, "clicked"))
-                app.exit(3);
+            if (installerQuit) {
+                // Deliver the installer's native message while the ordinary quit
+                // prompt is open. This must bypass both it and icon close vetoes.
+                // Direct delivery also permits this regression to run offscreen.
+                MSG message{};
+                message.hwnd = reinterpret_cast<HWND>(window->winId());
+                message.message = whatInstallerQuitMessage();
+                qintptr result = 1;
+                if (!frame.nativeEventFilter("windows_generic_MSG", &message, &result) || result != 0)
+                    app.exit(5);
+            } else {
+                auto *confirm = window->findChild<QObject *>("confirmQuit");
+                if (!confirm || !QMetaObject::invokeMethod(confirm, "clicked"))
+                    app.exit(3);
+            }
         });
         ready.start(20);
         QTimer::singleShot(8000, &app, [&] {

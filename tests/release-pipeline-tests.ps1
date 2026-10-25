@@ -25,15 +25,17 @@ param($Architecture, [switch]$Clean, $ResultPath)
 @'
 param($Architecture, $ReleaseDirectory)
 $root = Split-Path $PSScriptRoot -Parent
-if ($ReleaseDirectory -ne "$root/build/release with spaces") { throw 'Wrong release directory.' }
+$expected = Get-Content "$root/build/package-arguments.json" -Encoding UTF8 -Raw | ConvertFrom-Json
+if ($ReleaseDirectory -ne $expected.releaseDirectory) { throw 'Wrong release directory.' }
 $suffix = if ($Architecture -eq 'x64') { '' } else { '-arm64' }
-@{version='0.1.0'; updatePackage="$root/build/$Architecture/update.msix"} | ConvertTo-Json | Set-Content "$root/build/latest-installers$suffix.json"
+@{version='0.1.0'; updatePackage=$expected.packagePath} | ConvertTo-Json | Set-Content "$root/build/latest-installers$suffix.json"
 '@ | Set-Content "$fixture/scripts/Build-Installers.ps1"
 @'
 param($PackagePath, $CertificatePath)
 $root = Split-Path $PSScriptRoot -Parent
 if ($PSVersionTable.PSVersion.Major -ne 5) { throw 'Updater tests must use Windows PowerShell.' }
-if ($PackagePath -notlike "$root/build/*/update.msix" -or $CertificatePath -ne (Join-Path (Split-Path $PackagePath) 'MSIX/WHAT.cer')) { throw 'Wrong payload or certificate passed to updater tests.' }
+$expected = Get-Content "$root/build/package-arguments.json" -Encoding UTF8 -Raw | ConvertFrom-Json
+if ($PackagePath -ne $expected.packagePath -or $CertificatePath -ne $expected.certificatePath) { throw 'Wrong payload or certificate passed to updater tests.' }
 Add-Content "$root/build/calls.txt" 'updater'
 if ((Get-Content "$root/build/failure.txt") -eq 'updater') { exit 11 }
 '@ | Set-Content "$fixture/tests/update-helper-tests.ps1"
@@ -68,15 +70,25 @@ foreach ($architecture in @('x64', 'arm64')) {
         $result = Get-Content "$fixture/build/result.json" -Raw | ConvertFrom-Json
         if ($result.architecture -ne $architecture -or $result.clean -ne $clean) { throw 'Build arguments changed.' }
     }
+    # Check the caller's literal arguments, not paths rebuilt from PSScriptRoot:
+    # PowerShell expands Windows short names there, including CI's TEMP alias.
+    # The dot segment also exercises differing spellings on machines without 8.3 names.
+    $releaseDirectory = "$fixture/build/./release with spaces"
+    $packagePath = "$fixture/build/$architecture/update.msix"
+    @{
+        releaseDirectory = $releaseDirectory
+        packagePath = $packagePath
+        certificatePath = Join-Path (Split-Path $packagePath -Parent) 'MSIX/WHAT.cer'
+    } | ConvertTo-Json | Set-Content "$fixture/build/package-arguments.json"
     foreach ($failure in @('', 'updater')) {
         Reset-Fixture $failure
         $rejected = $false
-        try { & "$fixture/scripts/Invoke-ReleasePipeline.ps1" -Stage Package -Architecture $architecture -ReleaseDirectory "$fixture/build/release with spaces" 6>$null }
+        try { & "$fixture/scripts/Invoke-ReleasePipeline.ps1" -Stage Package -Architecture $architecture -ReleaseDirectory $releaseDirectory 6>$null }
         catch { $rejected = $_.Exception.Message -like 'update-helper-tests failed with exit code 11*'; if (!$rejected) { throw } }
         if ($rejected -ne [bool]$failure -or (Get-Calls) -ne 'updater') { throw 'Signed-package validation result was lost.' }
     }
 }
-Write-Host 'PASS: both architectures, clean forwarding and signed-package failures.'
+Write-Host 'PASS: both architectures, literal path forwarding, clean forwarding and signed-package failures.'
 
 # Execute only build-directory selection from the real script: clean builds must
 # avoid existing CMake caches without deleting the incremental tree or keys.

@@ -18,6 +18,8 @@ public static class WhatBuildShutdown {
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetProp(IntPtr window, string name);
     [DllImport("user32.dll")] private static extern bool PostThreadMessage(uint thread, uint message, UIntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr window, uint message, UIntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern uint RegisterWindowMessage(string message);
 
     public static bool RequestQuit(uint processId) {
         bool requested = false;
@@ -25,8 +27,11 @@ public static class WhatBuildShutdown {
             uint owner;
             uint thread = GetWindowThreadProcessId(window, out owner);
             if (owner == processId && GetProp(window, "WHAT.MainWindow") != IntPtr.Zero) {
-                // Qt handles WM_QUIT through its normal application shutdown.
-                requested = PostThreadMessage(thread, 0x0012, UIntPtr.Zero, IntPtr.Zero);
+                // Prefer the same explicit shutdown request as Setup. Older
+                // builds retain their bounded WM_QUIT/termination fallback.
+                requested = GetProp(window, "WHAT.InstallerQuit") != IntPtr.Zero
+                    ? PostMessage(window, RegisterWindowMessage("WHAT.QuitForInstaller.1"), UIntPtr.Zero, IntPtr.Zero)
+                    : PostThreadMessage(thread, 0x0012, UIntPtr.Zero, IntPtr.Zero);
                 return false;
             }
             return true;

@@ -111,7 +111,9 @@ internal static class SetupProgram
     [DllImport("user32.dll")] private static extern bool EnumWindows(WindowCallback callback, IntPtr parameter);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetProp(IntPtr window, string name);
-    [DllImport("user32.dll")] private static extern bool PostThreadMessage(uint thread, uint message, UIntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool PostThreadMessage(uint thread, uint message, UIntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool PostMessage(IntPtr window, uint message, UIntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern uint RegisterWindowMessage(string message);
 
     internal static bool RequestQuit(int processId) {
         bool requested = false;
@@ -120,11 +122,43 @@ internal static class SetupProgram
             uint thread = GetWindowThreadProcessId(window, out owner);
             if (owner != (uint)processId || GetProp(window, "WHAT.MainWindow") == IntPtr.Zero)
                 return true;
-            // WM_QUIT lets Qt finish its normal settings and worker shutdown.
-            requested = PostThreadMessage(thread, 0x0012, UIntPtr.Zero, IntPtr.Zero);
+            // New versions bypass QApplication's close-all-windows veto. Keep
+            // WM_QUIT only for installed versions predating this handshake.
+            requested = GetProp(window, "WHAT.InstallerQuit") != IntPtr.Zero
+                ? PostMessage(window, RegisterWindowMessage("WHAT.QuitForInstaller.1"), UIntPtr.Zero, IntPtr.Zero)
+                : PostThreadMessage(thread, 0x0012, UIntPtr.Zero, IntPtr.Zero);
             return false;
         }, IntPtr.Zero);
         return requested;
+    }
+
+    internal static void CloseRunningProcess(Process process, Action<string> log,
+        int gracefulTimeoutMs = 10000, int forcedTimeoutMs = 10000) {
+        int id = process.Id;
+        if (process.HasExited) { log("PID " + id + " has already exited."); return; }
+        bool requested = RequestQuit(id);
+        log("PID " + id + ": shutdown request " + (requested ? "sent." : "could not be delivered."));
+        if (process.WaitForExit(gracefulTimeoutMs)) {
+            log("PID " + id + ": graceful shutdown completed.");
+            return;
+        }
+        // Older releases can reject WM_QUIT when taskbar icons are open. The
+        // user approved stopping WHAT in RunningAppPrompt; bound this fallback.
+        log("PID " + id + ": graceful shutdown timed out; requesting forced termination.");
+        try {
+            if (!process.HasExited) process.Kill();
+        } catch (Exception error) {
+            if (process.HasExited) return; // It exited between the wait and Kill.
+            log("PID " + id + ": forced termination failed: " + error);
+            throw new IOException("Windows could not stop WHAT (PID " + id + "). "
+                + "Quit that copy of WHAT before retrying. " + error.Message, error);
+        }
+        if (!process.WaitForExit(forcedTimeoutMs)) {
+            log("PID " + id + ": still running after forced termination.");
+            throw new IOException("Windows has not finished stopping WHAT (PID " + id + "). "
+                + "Close it in Task Manager and retry. Nothing was installed.");
+        }
+        log("PID " + id + ": forced termination completed.");
     }
 
     internal static ProcessStartInfo PowerShellStartInfo(string script, string directory) {
@@ -465,19 +499,14 @@ internal sealed class SetupWindow : Form
                 if (choice != DialogResult.OK) return false;
             }
             await Task.Run(() => {
-                foreach (var process in running) {
-                    if (process.HasExited) continue;
-                    SetupProgram.RequestQuit(process.Id);
-                    if (process.WaitForExit(10000)) continue;
-                    // An unresponsive app must not leave Setup waiting forever.
-                    if (!process.HasExited) process.Kill();
-                    if (!process.WaitForExit(5000))
-                        throw new IOException("WHAT did not close. Quit it from the tray and retry.");
-                }
+                foreach (var process in running)
+                    SetupProgram.CloseRunningProcess(process, message =>
+                        File.AppendAllText(logPath, DateTime.UtcNow.ToString("o") + " Shutdown: " + message + Environment.NewLine));
             });
             return true;
         } catch (Exception error) {
-            SetupMessage.Show(this, error.Message, "Could not close WHAT", false);
+            File.AppendAllText(logPath, DateTime.UtcNow.ToString("o") + " Shutdown failed: " + error + Environment.NewLine);
+            SetupMessage.Show(this, error.Message + "\r\n\r\nLog: " + logPath, "Could not close WHAT", false);
             return false;
         } finally { foreach (var process in running) process.Dispose(); }
     }
@@ -629,6 +658,6 @@ internal static class SetupMessage {
 
 internal sealed class RunningAppPrompt : Form {
     public RunningAppPrompt() {
-        SetupMessage.Configure(this, "WHAT is running", "Close WHAT to install the new version?\r\n\r\nClose app ends the running monitor. Ignore leaves it running and attempts installation; Windows may reject it.", new[] { "Close app", "Ignore", "Cancel" }, new[] { DialogResult.OK, DialogResult.Ignore, DialogResult.Cancel });
+        SetupMessage.Configure(this, "WHAT is running", "Close WHAT to install the new version?\r\n\r\nClose app asks WHAT to save its settings and exit. If it does not respond, Setup will force it to stop. Ignore leaves it running and attempts installation; Windows may reject it.", new[] { "Close app", "Ignore", "Cancel" }, new[] { DialogResult.OK, DialogResult.Ignore, DialogResult.Cancel });
     }
 }
