@@ -100,7 +100,7 @@ void Controller::handleBeacnCommand(const QString &session, const QJsonObject &c
         "^(?:(?:volume|mute|audience)_[0-9]{1,3}|refresh_choices|submix|previous_page|next_page|active_device|personal_device|audience_device|theme|screen_brightness|button_brightness|dim_timeout)$");
     const auto control =
         safeControl.match(requestedControl).hasMatch() ? requestedControl : QString("unknown control");
-    auto reply = [this, session, id, local, control](bool ok, QString message) {
+    auto reply = [this, session, id, local, control, requestedControl](bool ok, QString message) {
         beacnData["last_command"] = message;
         if (!ok)
             log(QString("ERROR BEACN [%1] %2: failed; see BEACN diagnostics for details")
@@ -110,6 +110,8 @@ void Controller::handleBeacnCommand(const QString &session, const QJsonObject &c
             server.replyCommand(session, id, ok, message);
         emit changed();
         publish();
+        if (local)
+            emit localBeacnFinished(requestedControl, ok, message);
     };
     if (!moduleEnabled("beacn") || (!local && !settings.value("modules/beacn/control", false).toBool())) {
         reply(false, "Enable BEACN and its Home Assistant control permission first");

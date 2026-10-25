@@ -115,8 +115,11 @@ extern "C" __declspec(dllexport) LRESULT CALLBACK VolumeHook(int code, WPARAM wp
                             cmd->observed = cmd->mode == 3 ? aud : hp;
                             cmd->error = matches ? 0 : 2;
                             InterlockedExchange(&cmd->state, matches ? 2 : -2);
-                        } else
-                            InterlockedExchange(&cmd->state, 2);
+                        } else {
+                            const bool matches = std::abs(cmd->observed - cmd->target) <= 0.0001f;
+                            cmd->error = matches ? 0 : 2;
+                            InterlockedExchange(&cmd->state, matches ? 2 : -2);
+                        }
                     }
                 }
                 if (cmd)

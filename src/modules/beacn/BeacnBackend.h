@@ -10,6 +10,8 @@
 
 #include <cstdint>
 #include <functional>
+#include <atomic>
+#include <memory>
 
 class QFile;
 class QTimer;
@@ -114,6 +116,10 @@ public:
         return m_globalUncertain;
     }
 
+    bool nativeDiscoveryPending() const {
+        return m_nativeScanPending;
+    }
+
     quint32 nativeProcessId() const {
         return m_globalPid;
     }
@@ -164,7 +170,7 @@ public:
         return m_nativeStates;
     }
 
-    void refreshNativeStates();
+    void refreshNativeStates(bool allowDiscovery = true);
     Q_INVOKABLE bool setNativeControl(int sourcePair, bool active, bool channelButton);
     static int nativeSourceType(int sourcePair);
     QString nativeSourceName(int sourcePair) const;
@@ -319,6 +325,15 @@ signals:
     void logMessage(const QString &line);
 
 private:
+    friend class ControllerTests;
+    static bool validateNativeFader(void *process, quintptr base, quintptr object,
+                                    const QByteArray &name, bool linked, float &current);
+    // Addresses come from the current validated readback, not a fresh heap walk per edit.
+    bool m_nativeScanPending = false;
+    std::shared_ptr<std::atomic_bool> m_nativeScanStop = std::make_shared<std::atomic_bool>(false);
+    QVector<quintptr> m_nativeFaders;
+    quintptr m_nativeBase = 0;
+    quint64 m_nativeBirth = 0;
     std::function<bool()> m_commandGuard;
     using Status = std::uint32_t;
     using DeviceHandle = void *;

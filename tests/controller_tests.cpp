@@ -21,6 +21,7 @@
 #include <QtConcurrent>
 #include <QQuickItemGrabResult>
 #include "modules/beacn/BeacnBackend.h"
+#include "modules/beacn/NativeLayout.h"
 #include "modules/windows/specs/SpecsDisplays.h"
 #include "modules/windows/specs/SpecsIssues.h"
 #include "modules/windows/specs/SpecsHardware.h"
@@ -2215,6 +2216,15 @@ private slots:
         bool replied = false;
         module->command({}, std::make_shared<std::atomic_bool>(true),
                         std::make_shared<std::atomic_uint64_t>(0), 0, [&](bool, QString) { replied = true; });
+        int guiTicks = 0;
+        QTimer guiTimer;
+        guiTimer.setInterval(10);
+        connect(&guiTimer, &QTimer::timeout, this, [&] { ++guiTicks; });
+        guiTimer.start();
+        QTRY_VERIFY_WITH_TIMEOUT(guiTicks >= 3, 1000);
+        QVERIFY(module->busy());
+        QVERIFY(!replied);
+        guiTimer.stop();
         QElapsedTimer elapsed;
         elapsed.start();
         module.reset();
@@ -2503,6 +2513,139 @@ private slots:
         QTRY_VERIFY(!item("beacnFilter")->isVisible());
         QTRY_COMPARE(item("beacnConnectionStatus")->property("text").toString(), QString("Disabled"));
         QVERIFY2(bindingWarnings.isEmpty(), qPrintable(bindingWarnings.join('\n')));
+    }
+
+    void beacnCachedFaderRejectsChangedObjects() {
+        QByteArray object(0x160, 0), data(0x60, 0), label("Game");
+        const quintptr base = 0x10000000;
+        auto put = [](QByteArray &bytes, int offset, auto value) {
+            std::memcpy(bytes.data() + offset, &value, sizeof(value));
+        };
+        put(object, 0, quint64(base + BeacnLayout::FaderTable));
+        put(object, 0x150, quint64(reinterpret_cast<quintptr>(data.data())));
+        put(data, 0, quint64(reinterpret_cast<quintptr>(label.constData())));
+        put(data, 9, quint8(1));
+        put(data, 0x10, 0.35f);
+        put(data, 0x14, 0.35f);
+        float current = 0;
+        auto valid = [&](bool linked = true) {
+            return BeacnBackend::validateNativeFader(GetCurrentProcess(), base,
+                reinterpret_cast<quintptr>(object.constData()), "Game", linked, current);
+        };
+        QVERIFY(valid());
+        QCOMPARE(current, 0.35f);
+        // Changing volume is safe; an old address/name or unlinked mix is not.
+        put(data, 0x10, 0.6f);
+        QVERIFY(!valid());
+        QVERIFY(valid(false));
+        put(data, 0x14, 0.6f);
+        QVERIFY(valid());
+        QCOMPARE(current, 0.6f);
+        put(data, 9, quint8(0));
+        QVERIFY(!valid());
+        put(data, 9, quint8(1));
+        label[0] = 'N';
+        QVERIFY(!valid());
+        label[0] = 'G';
+        put(object, 0, quint64(base + BeacnLayout::FaderTable + 8));
+        QVERIFY(!valid());
+        put(object, 0, quint64(base + BeacnLayout::FaderTable));
+        put(object, 0x150, quint64(1));
+        QVERIFY(!valid()); // Freed/unreadable model cannot be dispatched.
+    }
+
+    void qmlBeacnSliderKeepsLatestEdit() {
+        QQmlApplicationEngine engine;
+        engine.loadData(R"QML(
+            import QtQuick
+            import QtQuick.Window
+            import "qrc:/qml/sensors"
+            Window {
+                id: fixtureWindow
+                width: 600; height: 100; visible: true
+                property var row: ({ id: "volume_2", name: "Game", kind: "number",
+                                     available: true, min: 0, max: 100, value: 35 })
+                function readback(value) { row = Object.assign({}, row, { value: value }); }
+                QtObject {
+                    id: fake
+                    objectName: "beacnFixture"
+                    property var beacn: ({ ready: true, busy: false })
+                    property var sent: []
+                    signal changed()
+                    signal localBeacnFinished(string control, bool ok, string message)
+                    function beacnCommand(args) {
+                        sent = sent.concat([args]);
+                        beacn = { ready: true, busy: true };
+                        changed();
+                    }
+                    function reply(ok) {
+                        beacn = { ready: true, busy: false };
+                        changed();
+                        localBeacnFinished("volume_2", ok, ok ? "Applied" : "Refused");
+                    }
+                }
+                BrowserBeacn {
+                    anchors.centerIn: parent
+                    width: 560
+                    controller: fake
+                    control: fixtureWindow.row
+                }
+            }
+        )QML", QUrl("qrc:/qml/beacn-slider-fixture.qml"));
+        QVERIFY(!engine.rootObjects().isEmpty());
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *editor = window->findChild<QQuickItem *>("beacnControl_volume_2");
+        auto *slider = window->findChild<QQuickItem *>("beacnControl_volume_2_slider");
+        auto *fake = window->findChild<QObject *>("beacnFixture");
+        QVERIFY(editor && slider && fake);
+        auto readback = [&](int value) {
+            return QMetaObject::invokeMethod(window, "readback", Q_ARG(QVariant, value));
+        };
+        auto submit = [&](int value) {
+            return QMetaObject::invokeMethod(editor, "submit", Q_ARG(QVariant, value));
+        };
+        auto reply = [&](bool ok) {
+            return QMetaObject::invokeMethod(fake, "reply", Q_ARG(QVariant, ok));
+        };
+        auto sent = [&] { return fake->property("sent").value<QJSValue>().toVariant().toList(); };
+        QCOMPARE(slider->property("value").toInt(), 35);
+        // Real pointer events: a poll mid-drag must not replace the user's value.
+        const QPoint point = slider->mapToScene(QPointF(slider->width() * 0.7, slider->height() / 2)).toPoint();
+        QTest::mousePress(window, Qt::LeftButton, {}, point);
+        QVERIFY(slider->property("pressed").toBool());
+        const int dragged = slider->property("value").toInt();
+        QVERIFY(dragged > 50);
+        QVERIFY(readback(12));
+        QCOMPARE(slider->property("value").toInt(), dragged);
+        QTest::mouseRelease(window, Qt::LeftButton, {}, point);
+        QCOMPARE(sent().size(), 1);
+        QCOMPARE(sent().first().toMap()["value"].toInt(), dragged);
+        QVERIFY(editor->isEnabled());
+        QVERIFY(readback(14)); // A late poll is not acknowledgement of our edit.
+        QCOMPARE(slider->property("value").toInt(), dragged);
+        QVERIFY(submit(80));
+        QVERIFY(submit(90));
+        QCOMPARE(sent().size(), 1);
+        QVERIFY(readback(dragged));
+        QVERIFY(reply(true));
+        QTRY_COMPARE(sent().size(), 2);
+        QCOMPARE(sent().last().toMap()["value"].toInt(), 90);
+        QCOMPARE(slider->property("value").toInt(), 90);
+        QVERIFY(readback(90));
+        QVERIFY(reply(true));
+        QVERIFY(!editor->property("hasDraft").toBool());
+        QVERIFY(readback(27));
+        QCOMPARE(slider->property("value").toInt(), 27);
+        // An uncertain/rejected write clears queued edits, without retrying them.
+        QVERIFY(submit(60));
+        QVERIFY(submit(70));
+        QVERIFY(reply(false));
+        QCoreApplication::processEvents();
+        QCOMPARE(sent().size(), 3);
+        QCOMPARE(slider->property("value").toInt(), 27);
+        window->hide();
     }
 
     void beacnCloudRedaction() {
@@ -7076,11 +7219,14 @@ private slots:
         QCOMPARE(warnings.size(), 0);
     }
 
-    void sidebarAnimationKeepsHiddenPagesSized() {
+    void sidebarResizingKeepsHiddenPagesSized() {
         QTemporaryDir dir;
         Controller local(dir.path(), true);
         local.stopService();
-        local.setUiTiming("panels", 500);
+        // Check layout propagation at controlled intermediate widths. Counting
+        // rendered frames in a short animation depends on host load and window
+        // occlusion; navigationSidebarAnimation checks the actual transition.
+        local.setAnimationsEnabled(false);
         UpdateManager updater(dir.path(), true);
         QQmlApplicationEngine engine;
         QSignalSpy warnings(&engine, &QQmlEngine::warnings);
@@ -7089,6 +7235,7 @@ private slots:
         engine.load(QUrl("qrc:/qml/Main.qml"));
         QVERIFY(!engine.rootObjects().isEmpty());
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(window);
         window->resize(1280, 884);
         window->show();
         QVERIFY(QTest::qWaitForWindowExposed(window));
@@ -7099,34 +7246,45 @@ private slots:
         QVERIFY(container);
         const auto pages = container->childItems();
         QCOMPARE(pages.size(), 10);
-        const auto initialWidth = pages[1]->width();
-        QSignalSpy visibleWidth(pages[0], &QQuickItem::widthChanged);
-        QSignalSpy hiddenWidth(pages[1], &QQuickItem::widthChanged);
-        QVERIFY(QMetaObject::invokeMethod(sidebar, "toggleCollapsed"));
-        QTRY_COMPARE(sidebar->width(), 64.0);
         QTRY_COMPARE(pages[0]->width(), stack->width());
-        qInfo("Sidebar collapse: %lld visible-page resizes, %lld hidden Sensors-page resizes",
-              static_cast<long long>(visibleWidth.size()), static_cast<long long>(hiddenWidth.size()));
-        QVERIFY(visibleWidth.size() > 2);
-        QCOMPARE(hiddenWidth.size(), 0);
-        for (int i = 1; i < pages.size(); ++i)
-            QCOMPARE(pages[i]->width(), initialWidth);
+        const auto initialWidth = pages[1]->width();
+        QSignalSpy overviewWidth(pages[0], &QQuickItem::widthChanged);
+        QSignalSpy sensorsWidth(pages[1], &QQuickItem::widthChanged);
+        const qreal contentMargins = window->width() - sidebar->width() - stack->width();
+        const QList<qreal> collapseWidths{180, 140, 100, 64};
+        for (const qreal width : collapseWidths) {
+            sidebar->setWidth(width);
+            QTRY_COMPARE(stack->width(), window->width() - width - contentMargins);
+            QTRY_COMPARE(pages[0]->width(), stack->width());
+            for (int i = 1; i < pages.size(); ++i)
+                QCOMPARE(pages[i]->width(), initialWidth);
+            QCOMPARE(sensorsWidth.size(), 0);
+        }
+        QCOMPARE(overviewWidth.size(), collapseWidths.size());
 
         // Preloaded pages catch up before being shown, without being recreated.
         window->setProperty("previewPage", 1);
         QTRY_COMPARE(stack->property("shownIndex").toInt(), 1);
         QCOMPARE(pages[1]->width(), stack->width());
         QCOMPARE(pages[1]->height(), stack->height());
-        visibleWidth.clear();
-        hiddenWidth.clear();
-        QVERIFY(QMetaObject::invokeMethod(sidebar, "toggleCollapsed"));
-        QTRY_COMPARE(sidebar->width(), 204.0);
-        QTRY_COMPARE(pages[1]->width(), stack->width());
-        QCOMPARE(visibleWidth.size(), 0);
-        QVERIFY(hiddenWidth.size() > 2);
+        const auto collapsedPageWidth = pages[0]->width();
+        overviewWidth.clear();
+        sensorsWidth.clear();
+        const QList<qreal> expandWidths{100, 140, 180, 204};
+        for (const qreal width : expandWidths) {
+            sidebar->setWidth(width);
+            QTRY_COMPARE(stack->width(), window->width() - width - contentMargins);
+            QTRY_COMPARE(pages[1]->width(), stack->width());
+            QCOMPARE(pages[0]->width(), collapsedPageWidth);
+            for (int i = 2; i < pages.size(); ++i)
+                QCOMPARE(pages[i]->width(), initialWidth);
+            QCOMPARE(overviewWidth.size(), 0);
+        }
+        QCOMPARE(sensorsWidth.size(), expandWidths.size());
         window->setProperty("previewPage", 2);
         QTRY_COMPARE(stack->property("shownIndex").toInt(), 2);
         QCOMPARE(pages[2]->width(), stack->width());
+        QCOMPARE(container->childItems(), pages);
         // Sensors can still be creating rows after the page transition ends.
         // Keep the window alive until its incubation work has finished.
         if (auto *incubation = engine.incubationController())

@@ -404,6 +404,7 @@ signals:
     void commandStreamChanged();
     void localIcueReply(const QString &requestId, bool ok, const QString &message);
     void localIcueFinished(bool ok, const QString &message);
+    void localBeacnFinished(const QString &control, bool ok, const QString &message);
     void changed();
     void sensorsChanged();
     void logChanged();

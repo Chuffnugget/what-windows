@@ -1126,6 +1126,7 @@ BeacnBackend::BeacnBackend(QObject *parent) : QObject(parent), m_dllPath(default
 }
 
 BeacnBackend::~BeacnBackend() {
+    m_nativeScanStop->store(true);
     disconnectDriver();
     releaseBeacnAppBridge();
 }
@@ -3486,7 +3487,10 @@ QString BeacnBackend::nativeSourceName(int sourcePair) const {
     return name;
 }
 
-void BeacnBackend::refreshNativeStates() {
+void BeacnBackend::refreshNativeStates(bool allowDiscovery) {
+    m_nativeFaders.clear();
+    m_nativeBase = 0;
+    m_nativeBirth = 0;
     m_globalMixer = m_globalProfiles = m_globalAssignments = m_globalOsd = m_globalSettings = 0;
     QString unavailable =
         m_connected ? "BEACN.exe is not running. Start the BEACN app, then retry." : m_status;
@@ -3555,56 +3559,95 @@ void BeacnBackend::refreshNativeStates() {
                 ? "The live mixer layout could not be validated. Check BEACN has an active mixing device, then use Reconnect."
                 : verificationError;
         if (verified) {
-            // Periodically rediscover rows after profile changes, never write remote memory.
-            if (!scanAge.isValid() || scanAge.elapsed() >= 5000) {
-                objects.clear();
-                globalMixers.clear();
-                globalProfiles.clear();
-                globalAssignments.clear();
-                globalOsds.clear();
-                globalSettings.clear();
-                quintptr cursor = 0;
-                while (cursor < 0x00007fffffffffffULL) {
-                    MEMORY_BASIC_INFORMATION mbi{};
-                    if (!VirtualQueryEx(process, reinterpret_cast<void *>(cursor), &mbi, sizeof(mbi)))
-                        break;
-                    const quintptr start = reinterpret_cast<quintptr>(mbi.BaseAddress),
-                                   end = start + mbi.RegionSize;
-                    if (end <= cursor)
-                        break;
-                    if (mbi.State == MEM_COMMIT && mbi.Type == MEM_PRIVATE &&
-                        remoteProtectionReadable(mbi.Protect)) {
-                        for (quintptr pos = start; pos < end; pos += 1024 * 1024) {
-                            const SIZE_T count = std::min<quintptr>(1024 * 1024, end - pos);
-                            QByteArray block(static_cast<qsizetype>(count), '\0');
-                            SIZE_T got = 0;
-                            ReadProcessMemory(process, reinterpret_cast<void *>(pos), block.data(), count,
-                                              &got);
-                            for (SIZE_T i = 0; i + 8 <= got; i += 8) {
-                                quint64 value;
-                                std::memcpy(&value, block.constData() + i, 8);
-                                if (value == base + BeacnLayout::FaderTable)
-                                    objects.append(pos + i);
-                                if (value == base + BeacnLayout::MixerTable)
-                                    globalMixers.append(pos + i);
-                                if (value == base + BeacnLayout::ProfilesTable)
-                                    globalProfiles.append(pos + i);
-                                if (value == base + BeacnLayout::AssignmentsTable)
-                                    globalAssignments.append(pos + i);
-                                if (value == base + BeacnLayout::OsdTable)
-                                    globalOsds.append(pos + i);
-                                if (value == base + BeacnLayout::SystemSettingsTable)
-                                    globalSettings.append(pos + i);
+            // Rediscovery can read a large heap. Run it separately so neither
+            // sliders nor the serialized vendor command worker wait for a scan.
+            if (allowDiscovery && !m_nativeScanPending &&
+                (!scanAge.isValid() || scanAge.elapsed() >= 5000)) {
+                struct Objects {
+                    QVector<quintptr> faders, mixers, profiles, assignments, osds, settings;
+                };
+                m_nativeScanPending = true;
+                auto watcher = new QFutureWatcher<Objects>(this);
+                const auto generation = m_connectionGeneration;
+                const auto scanBase = base;
+                const auto selectedPath = m_exePath;
+                connect(watcher, &QFutureWatcher<Objects>::finished, this,
+                        [this, watcher, generation, pid, born, scanBase, selectedPath] {
+                    const auto found = watcher->result();
+                    watcher->deleteLater();
+                    m_nativeScanPending = false;
+                    // A late result from an old process/profile configuration is unusable.
+                    if (generation != m_connectionGeneration || cachedPid != pid ||
+                        cachedBirth != born || base != scanBase || m_exePath != selectedPath)
+                        return;
+                    objects = found.faders;
+                    globalMixers = found.mixers;
+                    globalProfiles = found.profiles;
+                    globalAssignments = found.assignments;
+                    globalOsds = found.osds;
+                    globalSettings = found.settings;
+                    scanAge.restart();
+                    refreshNativeStates(false);
+                });
+                watcher->setFuture(QtConcurrent::run([pid, born, scanBase, stop = m_nativeScanStop] {
+                    Objects found;
+                    HANDLE scanProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+                    if (!scanProcess)
+                        return found;
+                    struct ProcessGuard {
+                        HANDLE handle;
+                        ~ProcessGuard() { CloseHandle(handle); }
+                    } guard{scanProcess};
+                    FILETIME birth{}, exit{}, kernel{}, user{};
+                    if (!GetProcessTimes(scanProcess, &birth, &exit, &kernel, &user) ||
+                        ((quint64(birth.dwHighDateTime) << 32) | birth.dwLowDateTime) != born)
+                        return found;
+                    quintptr cursor = 0;
+                    while (!stop->load() && cursor < 0x00007fffffffffffULL) {
+                        MEMORY_BASIC_INFORMATION mbi{};
+                        if (!VirtualQueryEx(scanProcess, reinterpret_cast<void *>(cursor), &mbi, sizeof(mbi)))
+                            break;
+                        const quintptr start = reinterpret_cast<quintptr>(mbi.BaseAddress),
+                                       end = start + mbi.RegionSize;
+                        if (end <= cursor)
+                            break;
+                        if (mbi.State == MEM_COMMIT && mbi.Type == MEM_PRIVATE &&
+                            remoteProtectionReadable(mbi.Protect)) {
+                            for (quintptr pos = start; pos < end && !stop->load(); pos += 1024 * 1024) {
+                                const SIZE_T count = std::min<quintptr>(1024 * 1024, end - pos);
+                                QByteArray block(static_cast<qsizetype>(count), '\0');
+                                SIZE_T got = 0;
+                                ReadProcessMemory(scanProcess, reinterpret_cast<void *>(pos),
+                                                  block.data(), count, &got);
+                                for (SIZE_T i = 0; i + 8 <= got; i += 8) {
+                                    quint64 value;
+                                    std::memcpy(&value, block.constData() + i, 8);
+                                    if (value == scanBase + BeacnLayout::FaderTable)
+                                        found.faders.append(pos + i);
+                                    if (value == scanBase + BeacnLayout::MixerTable)
+                                        found.mixers.append(pos + i);
+                                    if (value == scanBase + BeacnLayout::ProfilesTable)
+                                        found.profiles.append(pos + i);
+                                    if (value == scanBase + BeacnLayout::AssignmentsTable)
+                                        found.assignments.append(pos + i);
+                                    if (value == scanBase + BeacnLayout::OsdTable)
+                                        found.osds.append(pos + i);
+                                    if (value == scanBase + BeacnLayout::SystemSettingsTable)
+                                        found.settings.append(pos + i);
+                                }
                             }
                         }
+                        cursor = end;
                     }
-                    cursor = end;
-                }
-                scanAge.restart();
+                    return found;
+                }));
             }
             m_globalPid = pid;
             readGlobalState(process, base, globalMixers, globalProfiles, globalAssignments, globalOsds,
                             globalSettings);
+            m_nativeBase = base;
+            m_nativeBirth = born;
+            m_nativeFaders.fill(0, states.size());
             QVector<int> matches(states.size(), 0);
             for (quintptr obj : objects) {
                 quint64 table = 0, data = 0, name = 0;
@@ -3630,6 +3673,7 @@ void BeacnBackend::refreshNativeStates() {
                         std::memcmp(actual, label.constData(), label.size() + 1))
                         continue;
                     ++matches[i];
+                    m_nativeFaders[i] = obj;
                     states[i] =
                         QVariantMap{{QStringLiteral("valid"), true},
                                     {QStringLiteral("linked"), fields[9] == 1 && levels[0] == levels[1]},
@@ -3644,8 +3688,10 @@ void BeacnBackend::refreshNativeStates() {
                 }
             }
             for (int i = 0; i < states.size(); ++i)
-                if (matches[i] != 1)
+                if (matches[i] != 1) {
                     states[i] = QVariantMap{{QStringLiteral("valid"), false}};
+                    m_nativeFaders[i] = 0; // Never select an ambiguous or stale row.
+                }
         }
         CloseHandle(process);
     }
@@ -3691,7 +3737,7 @@ bool BeacnBackend::setNativeSourcePercent(int sourcePair, double percent) {
     // The command acknowledgement includes a snapshot. Refresh the app model
     // first so the UI does not briefly snap back to the previous volume.
     if (ok)
-        refreshNativeStates();
+        refreshNativeStates(false);
     return ok;
 }
 
@@ -3704,6 +3750,31 @@ bool BeacnBackend::setNativeControl(int sourcePair, bool active, bool channelBut
     refreshNativeStates();
     exportRecording(false);
     return ok;
+}
+
+bool BeacnBackend::validateNativeFader(void *process, quintptr base, quintptr object,
+                                       const QByteArray &name, bool linked, float &current) {
+#ifdef Q_OS_WIN
+    quint64 table = 0, data = 0, nameAddress = 0;
+    float levels[2]{};
+    unsigned char linkedFlag = 0;
+    char label[128]{};
+    if (!base || !object || name.isEmpty() || name.size() >= qsizetype(sizeof(label)) ||
+        !readRemoteValue(process, object, table) || table != base + BeacnLayout::FaderTable ||
+        !readRemoteValue(process, object + 0x150, data) || !readRemoteValue(process, data, nameAddress) ||
+        !readRemoteBlock(process, nameAddress, label, name.size() + 1) ||
+        std::memcmp(label, name.constData(), name.size() + 1) ||
+        !readRemoteBlock(process, data + 0x10, levels, sizeof(levels)) ||
+        !readRemoteValue(process, data + 0x09, linkedFlag) || linkedFlag > 1 ||
+        !std::isfinite(levels[0]) || !std::isfinite(levels[1]) || levels[0] < 0 || levels[0] > 1 ||
+        levels[1] < 0 || levels[1] > 1 || (linked && (linkedFlag != 1 || levels[0] != levels[1])))
+        return false;
+    current = levels[0];
+    return true;
+#else
+    Q_UNUSED(process); Q_UNUSED(base); Q_UNUSED(object); Q_UNUSED(name); Q_UNUSED(linked); Q_UNUSED(current);
+    return false;
+#endif
 }
 
 bool BeacnBackend::writeNativeVolume(int sourcePair, double percentStep, bool relative, int operation) {
@@ -3745,65 +3816,18 @@ bool BeacnBackend::writeNativeVolume(int sourcePair, double percentStep, bool re
             .canonicalFilePath()
             .compare(QFileInfo(m_exePath).canonicalFilePath(), Qt::CaseInsensitive) != 0)
         return fail("The running BEACN app differs from the selected executable. Check Setup.");
-    if (!compatibleBeacnAppFile(executable.fileName()))
-        return fail("The running BEACN app " + beacnFileVersion(executable.fileName()) +
-                    " is not compatible with this native bridge. No command was sent.");
-    quintptr base = 0;
-    DWORD size = 0;
-    QString error;
-    if (!findBeacnModuleBase(pid, base, size, &error))
-        return fail(error);
-    quintptr game = 0;
+    FILETIME birth{}, exit{}, kernel{}, user{};
+    const quint64 born = GetProcessTimes(process, &birth, &exit, &kernel, &user)
+                             ? (quint64(birth.dwHighDateTime) << 32) | birth.dwLowDateTime : 0;
+    // The worker refreshed and verified these addresses before dispatch. Validate
+    // the process lifetime and the exact row again; the injected handler repeats
+    // these checks on BEACN's own UI thread before touching its model.
+    if (!born || pid != m_globalPid || born != m_nativeBirth || !m_nativeBase)
+        return fail("BEACN restarted since the last readback. Wait for reconnection.");
+    const quintptr game = m_nativeFaders.value(sourcePair);
     float original = 0;
-    int matches = 0;
-    const quint64 expectedVtable = base + BeacnLayout::FaderTable;
-    // Discover anew on every click: profile changes can destroy/recreate UI rows.
-    quintptr cursor = 0;
-    while (cursor < 0x00007fffffffffffULL) {
-        MEMORY_BASIC_INFORMATION mbi{};
-        if (!VirtualQueryEx(process, reinterpret_cast<void *>(cursor), &mbi, sizeof(mbi)))
-            break;
-        const quintptr start = reinterpret_cast<quintptr>(mbi.BaseAddress);
-        const quintptr end = start + mbi.RegionSize;
-        if (end <= cursor)
-            break;
-        if (mbi.State == MEM_COMMIT && mbi.Type == MEM_PRIVATE && remoteProtectionReadable(mbi.Protect)) {
-            for (quintptr pos = start; pos < end; pos += 1024 * 1024) {
-                const SIZE_T count = std::min<quintptr>(1024 * 1024, end - pos);
-                QByteArray block(static_cast<qsizetype>(count), '\0');
-                SIZE_T got = 0;
-                ReadProcessMemory(process, reinterpret_cast<void *>(pos), block.data(), count, &got);
-                for (SIZE_T i = 0; i + 8 <= got; i += 8) {
-                    quint64 value;
-                    std::memcpy(&value, block.constData() + i, 8);
-                    if (value != expectedVtable)
-                        continue;
-                    quint64 data = 0, name = 0;
-                    if (!readRemoteValue(process, pos + i + 0x150, data) ||
-                        !readRemoteValue(process, data, name))
-                        continue;
-                    char label[128]{};
-                    float levels[2]{};
-                    if (!readRemoteBlock(process, name, label, encodedName.size() + 1) ||
-                        std::memcmp(label, encodedName.constData(), encodedName.size() + 1) ||
-                        !readRemoteBlock(process, data + 0x10, levels, sizeof(levels)))
-                        continue;
-                    unsigned char linked = 0;
-                    if (!readRemoteValue(process, data + 0x09, linked) || !std::isfinite(levels[0]) ||
-                        levels[0] < 0 || levels[0] > 1 ||
-                        (operation == 1 && (linked != 1 || levels[0] != levels[1])))
-                        continue;
-                    game = pos + i;
-                    original = levels[0];
-                    ++matches;
-                }
-            }
-        }
-        cursor = end;
-    }
-    if (matches != 1)
-        return fail(
-            QStringLiteral("Expected one eligible source row; found %1. No write sent.").arg(matches));
+    if (!validateNativeFader(process, m_nativeBase, game, encodedName, operation == 1, original))
+        return fail("The BEACN source changed since the last readback. No command was sent.");
 
     struct WindowSearch {
         DWORD pid;
@@ -3816,9 +3840,11 @@ bool BeacnBackend::writeNativeVolume(int sourcePair, double percentStep, bool re
             auto s = reinterpret_cast<WindowSearch *>(arg);
             DWORD owner = 0;
             DWORD thread = GetWindowThreadProcessId(hwnd, &owner);
+            if (owner != s->pid)
+                return TRUE;
             wchar_t title[256]{};
             GetWindowTextW(hwnd, title, 256);
-            if (owner == s->pid && !wcscmp(title, L"BEACN")) {
+            if (!wcscmp(title, L"BEACN")) {
                 s->hwnd = hwnd;
                 s->thread = thread;
                 return FALSE;
@@ -4449,9 +4475,11 @@ bool BeacnBackend::globalControl(int operation, int value, const QString &target
             auto s = reinterpret_cast<WindowSearch *>(arg);
             DWORD owner = 0;
             DWORD thread = GetWindowThreadProcessId(hwnd, &owner);
+            if (owner != s->pid)
+                return TRUE;
             wchar_t title[256]{};
             GetWindowTextW(hwnd, title, 256);
-            if (owner == s->pid && !wcscmp(title, L"BEACN")) {
+            if (!wcscmp(title, L"BEACN")) {
                 s->hwnd = hwnd;
                 s->thread = thread;
                 return FALSE;

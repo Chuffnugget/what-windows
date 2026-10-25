@@ -127,6 +127,7 @@ QVariantMap BeacnWorker::readState() const {
     if (!backend)
         return {};
     const auto g = backend->globalState();
+    const bool discovering = backend->nativeDiscoveryPending() && !g.value("valid").toBool();
     const bool live = backend->connected() && g.value("valid").toBool() && !backend->commandUncertain() &&
                       installation.value("helperPresent").toBool();
     QString status = backend->status();
@@ -165,6 +166,8 @@ QVariantMap BeacnWorker::readState() const {
                                     unavailableFeatures.join(", ") + ". These controls are unavailable.";
         }
     }
+    if (discovering)
+        status = "Discovering BEACN mixer controls...";
     if (!compatibilityWarning.isEmpty())
         status += "\n" + compatibilityWarning;
     QVariantList controls, channels;
@@ -248,6 +251,7 @@ QVariantMap BeacnWorker::readState() const {
     return {{"installation", installation},
             {"connected", backend->connected()},
             {"ready", live},
+            {"discovering", discovering},
             {"status", status},
             {"compatibility_warning", compatibilityWarning},
             {"command_status", backend->globalStatus()},
@@ -358,7 +362,7 @@ void BeacnWorker::command(const QJsonObject &args, std::shared_ptr<std::atomic_b
     if (cancelled() || !backend)
         error = "BEACN command cancelled before dispatch";
     else {
-        backend->refreshNativeStates();
+        backend->refreshNativeStates(false);
         error = BeacnModule::validate(args, readState().value("controls").toList());
         if (error.isEmpty() && cancelled())
             error = "BEACN command cancelled before dispatch";

@@ -1,5 +1,7 @@
 // Read-only by default. --roundtrip opts into small volume/brightness changes
-// followed by restoration. --inspect checks a file without opening the driver.
+// followed by restoration; --volume-roundtrip limits this to the Game fader.
+// --volume-check sends its unchanged value; --samples repeats these timing checks.
+// --inspect checks a file without opening the driver.
 #include "modules/beacn/BeacnModule.h"
 #include "modules/beacn/InstalledFiles.h"
 #include <QCoreApplication>
@@ -29,11 +31,24 @@ int main(int argc, char **argv) {
     }
     BeacnModule module;
     int ticks = 0;
+    qint64 maxMainThreadGap = 0;
+    QElapsedTimer heartbeatClock;
+    heartbeatClock.start();
     QTimer heartbeat;
     heartbeat.setInterval(20);
-    QObject::connect(&heartbeat, &QTimer::timeout, &app, [&] { ++ticks; });
+    QObject::connect(&heartbeat, &QTimer::timeout, &app, [&] {
+        ++ticks;
+        maxMainThreadGap = qMax(maxMainThreadGap, heartbeatClock.restart());
+    });
     heartbeat.start();
-    const bool roundtrip = app.arguments().contains("--roundtrip");
+    const bool volumeCheck = app.arguments().contains("--volume-check");
+    const bool volumeRoundtrip = app.arguments().contains("--volume-roundtrip");
+    const bool volumeOnly = volumeCheck || volumeRoundtrip;
+    const bool roundtrip = volumeOnly || app.arguments().contains("--roundtrip");
+    const int samplesAt = app.arguments().indexOf("--samples");
+    const int samples = samplesAt >= 0 && samplesAt + 1 < app.arguments().size()
+                            ? qBound(1, app.arguments()[samplesAt + 1].toInt(), 20) : 1;
+    int discoverySnapshots = 0;
     QVariantMap latest;
     QList<QJsonObject> commands;
     QJsonArray results;
@@ -50,9 +65,12 @@ int main(int argc, char **argv) {
             return;
         }
         const auto command = commands.takeFirst();
-        module.command(command, {}, epoch, 0, [&, command](bool ok, const QString &message) {
+        QElapsedTimer latency;
+        latency.start();
+        module.command(command, {}, epoch, 0, [&, command, latency](bool ok, const QString &message) {
+            const auto commandMs = latency.elapsed();
             // Wait for the vendor's queued UI/model updates before readback.
-            QTimer::singleShot(1400, &app, [&, command, ok, message] {
+            QTimer::singleShot(1400, &app, [&, command, ok, message, commandMs] {
                 QJsonValue observed;
                 for (const auto &item : latest["controls"].toList()) {
                     const auto control = item.toMap();
@@ -68,7 +86,8 @@ int main(int argc, char **argv) {
                                            {"accepted", ok},
                                            {"matched", matched},
                                            {"observed", observed},
-                                           {"message", message}});
+                                           {"message", message}, {"command_ms", commandMs},
+                                           {"main_thread_max_gap_ms", maxMainThreadGap}});
                 // The following step restores the original value even if the
                 // readback failed. The module still blocks uncertain dispatches.
                 next();
@@ -76,10 +95,13 @@ int main(int argc, char **argv) {
         });
     };
     QObject::connect(&module, &BeacnModule::snapshot, &app, [&](QVariantMap state) {
+        if (state.value("discovering").toBool())
+            ++discoverySnapshots;
+        state["discovery_snapshots"] = discoverySnapshots;
         state["main_thread_heartbeats"] = ticks;
         latest = state;
-        if (started)
-            return;
+        if (started || !state.value("ready").toBool())
+            return; // Initial native discovery runs independently of the command worker.
         started = true;
         if (!roundtrip || !state.value("ready").toBool()) {
             save(state);
@@ -89,18 +111,21 @@ int main(int argc, char **argv) {
         for (const auto &item : state["controls"].toList()) {
             const auto control = item.toMap();
             const auto id = control["id"].toString();
-            if (!control["available"].toBool())
+            if (!control["available"].toBool() || (volumeOnly && id != "volume_2"))
                 continue;
             if (id == "volume_2" || id == "screen_brightness" || id == "button_brightness") {
                 const double original = control["value"].toDouble();
-                const double target = id == "volume_2"                       ? qMax(0.0, original - 0.25)
-                                      : original < control["max"].toDouble() ? original + 1
-                                                                             : original - 1;
-                commands.append(QJsonObject{{"control", id}, {"value", target}});
-                commands.append(QJsonObject{{"control", id}, {"value", original}});
+                const double target = volumeCheck ? original
+                    : id == "volume_2" ? qMax(0.0, original - 0.25)
+                    : original < control["max"].toDouble() ? original + 1 : original - 1;
+                for (int n = 0; n < (volumeOnly ? samples : 1); ++n) {
+                    commands.append(QJsonObject{{"control", id}, {"value", target}});
+                    if (!volumeCheck)
+                        commands.append(QJsonObject{{"control", id}, {"value", original}});
+                }
             }
         }
-        success = commands.size() == 6;
+        success = commands.size() == (volumeOnly ? samples * (volumeCheck ? 1 : 2) : 6);
         QTimer::singleShot(0, &app, next);
     });
     QTimer::singleShot(60000, &app, [&] {
