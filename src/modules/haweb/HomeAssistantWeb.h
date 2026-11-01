@@ -38,6 +38,9 @@ class HomeAssistantWeb final : public QObject, public QAbstractNativeEventFilter
 public:
     HomeAssistantWeb(QSettings &settings, const QString &directory, bool testing, QObject *parent = nullptr);
     ~HomeAssistantWeb() override;
+    // Final application shutdown, not module disable. Keeps configuration intact
+    // and closes native browser resources before the QML host windows disappear.
+    void shutdown();
     bool enabled() const;
     QString url() const;
     QString mode() const;

@@ -126,7 +126,7 @@ void HomeAssistantWeb::navigationFailed(int error, int httpStatus) {
 }
 
 void HomeAssistantWeb::startBrowser() {
-    if (!d->active || d->creating || d->web || (d->address.isEmpty() && !d->clearing))
+    if (d->shuttingDown || !d->active || d->creating || d->web || (d->address.isEmpty() && !d->clearing))
         return;
     if (!d->comInitialized) {
         if (FAILED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED))) {
@@ -581,6 +581,8 @@ void HomeAssistantWeb::syncBrowser() {
 }
 
 void HomeAssistantWeb::setPresented(bool presented) {
+    if (d->shuttingDown)
+        return;
     d->presented = presented && d->active;
     if (d->presented)
         startBrowser();
@@ -589,7 +591,7 @@ void HomeAssistantWeb::setPresented(bool presented) {
 }
 
 void HomeAssistantWeb::reload() {
-    if (!d->active || d->clearing)
+    if (d->shuttingDown || !d->active || d->clearing)
         return;
     d->message.clear();
     resetRecovery();
@@ -641,7 +643,7 @@ void HomeAssistantWeb::toggleMuted() {
 }
 
 void HomeAssistantWeb::clearCache(bool includeLogin) {
-    if (!d->active || d->clearing)
+    if (d->shuttingDown || !d->active || d->clearing)
         return;
     if (d->permissionBusy) {
         emit notice("Wait for the site permission changes to finish, then clear browser data.");

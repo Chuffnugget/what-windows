@@ -1,5 +1,6 @@
 #include "app/Controller.h"
 #include "app/AppRuntime.h"
+#include "app/GuiShutdown.h"
 #include "app/LocalDiagnostics.h"
 #include "app/PackageIdentity.h"
 #include "app/TrayUi.h"
@@ -143,6 +144,7 @@ int main(int argc, char **argv) {
         controller.setAppUpdate(updater.sharedStatus());
         QQuickStyle::setStyle("WHATStyle");
         QQmlApplicationEngine engine;
+        installGuiShutdown(engine, *controller.homeAssistantWeb);
         engine.setInitialProperties(
             {{"controller", QVariant::fromValue(&controller)}, {"updater", QVariant::fromValue(&updater)}});
         QStringList interfaceErrors;

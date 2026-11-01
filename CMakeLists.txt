@@ -6,7 +6,7 @@ project(
 )
 # Leave empty for stable releases; use beta.1, beta.2, etc. for prereleases.
 #set(WHAT_PRERELEASE "")
-set(WHAT_PRERELEASE "beta.7")
+set(WHAT_PRERELEASE "beta.8")
 if(WHAT_PRERELEASE AND NOT WHAT_PRERELEASE MATCHES "^beta\\.[1-9][0-9]*$")
     message(FATAL_ERROR "WHAT_PRERELEASE must be empty or beta.N")
 endif()
@@ -169,6 +169,7 @@ qt_add_executable(
     src/app/ControllerConfiguration.cpp
     src/app/Controller.h
     src/app/LocalDiagnostics.h
+    src/app/GuiShutdown.h
     src/modules/windows/lighting/DynamicLighting.cpp
     src/modules/windows/lighting/ControllerLighting.cpp
     src/modules/coretemp/CoreTempReader.cpp

@@ -161,11 +161,16 @@ ColumnLayout {
     }
 
     function foldGroups(close) {
+        stopScrolling();
         expandedId = "";
+        // Bulk folding changes the meaning/range of the old scroll position.
+        // Anchor to the first group before removing rows, so an off-screen
+        // delegate or unfinished flick cannot leave the viewport empty.
+        sensorList.positionViewAtBeginning();
         sensorList.categoryChange = true;
         controller.collapseCategories(close);
-        stopScrolling();
         sensorList.forceLayout();
+        sensorList.positionViewAtBeginning();
         sensorList.categoryChange = false;
     }
 

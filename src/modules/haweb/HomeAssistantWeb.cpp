@@ -113,18 +113,28 @@ HomeAssistantWeb::HomeAssistantWeb(QSettings &settings, const QString &directory
 }
 
 HomeAssistantWeb::~HomeAssistantWeb() {
-    savePictureInPicture();
-    d->desktopPlacement.detach();
+    shutdown();
     QCoreApplication::instance()->removeNativeEventFilter(this);
     if (d->registered)
         UnregisterHotKey(nullptr, overlayHotkeyId);
     if (d->pipRegistered)
         UnregisterHotKey(nullptr, pipHotkeyId);
-    stopBrowser();
     if (d->parkingWindow)
         DestroyWindow(d->parkingWindow);
     if (d->comInitialized)
         CoUninitialize();
+}
+
+void HomeAssistantWeb::shutdown() {
+    if (d->shuttingDown)
+        return;
+    d->shuttingDown = true;
+    savePictureInPicture();
+    d->desktopPlacement.detach();
+    stopBrowser();
+    d->presented = d->overlayVisible = d->desktopActive = false;
+    // No configuration notifications here: shutdown must not change saved mode,
+    // enabled state or cause QML to move/recreate the native browser container.
 }
 
 bool HomeAssistantWeb::enabled() const {
@@ -562,7 +572,8 @@ void HomeAssistantWeb::updateWindowGeometry() {
 }
 
 void HomeAssistantWeb::syncDesktop() {
-    const bool active = d->desktop && d->active && d->presentationMode == "desktop" && !d->address.isEmpty();
+    const bool active = !d->shuttingDown && d->desktop && d->active &&
+                        d->presentationMode == "desktop" && !d->address.isEmpty();
     const bool changed = active != d->desktopActive;
     d->desktopActive = active;
     if (changed)
@@ -638,7 +649,7 @@ void HomeAssistantWeb::togglePipMinimised() {
 }
 
 void HomeAssistantWeb::showOverlay(const QString &mode) {
-    if (mode != "pip" && mode != "fullscreen")
+    if (d->shuttingDown || (mode != "pip" && mode != "fullscreen"))
         return;
     if (!d->active || d->address.isEmpty() || !d->overlay) {
         emit pageRequested();
@@ -813,6 +824,8 @@ bool HomeAssistantWeb::nativeEventFilter(const QByteArray &, void *raw, qintptr 
 }
 
 bool HomeAssistantWeb::eventFilter(QObject *object, QEvent *event) {
+    if (d->shuttingDown)
+        return QObject::eventFilter(object, event);
     if (object == d->overlay && d->overlayVisible && d->overlayMode == "pip" &&
         (event->type() == QEvent::Resize || event->type() == QEvent::Move))
         d->saveGeometry.start();

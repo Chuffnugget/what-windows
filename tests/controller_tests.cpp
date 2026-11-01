@@ -11,6 +11,7 @@
 #include <propsys.h>
 #include <propkey.h>
 #include "app/WindowFrame.h"
+#include "app/GuiShutdown.h"
 #include "app/LocalDiagnostics.h"
 #include "comms/PublishingPolicy.h"
 #include "modules/windows/security/SecurityStatus.h"
@@ -847,6 +848,82 @@ private slots:
         restored.open();
         QCOMPARE(opened.size(), 1);
         QVERIFY(!restored.overlayVisible());
+    }
+
+    void homeAssistantWebShutdown() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QSettings settings(dir.filePath("settings.yaml"), SettingsStore::format());
+        HomeAssistantWeb web(settings, dir.path(), true);
+        QVERIFY(web.configure("https://example.test/dashboard", "windowed", 80, ""));
+        web.setEnabled(true);
+        QMap<QString, QVariant> before;
+        for (const auto &key : settings.allKeys())
+            before.insert(key, settings.value(key));
+        web.shutdown();
+        web.shutdown();
+        web.setPresented(true);
+        web.reload();
+        web.clearCache();
+        QVERIFY(!web.loading());
+        QVERIFY(!web.ready());
+        QVERIFY(!web.cacheBusy());
+        QVERIFY(web.enabled());
+        QMap<QString, QVariant> after;
+        for (const auto &key : settings.allKeys())
+            after.insert(key, settings.value(key));
+        QCOMPARE(after, before);
+    }
+
+    void homeAssistantWebShutdownNative_data() {
+        QTest::addColumn<bool>("pending");
+        QTest::newRow("creation-pending") << true;
+        QTest::newRow("browser-loaded") << false;
+    }
+
+    void homeAssistantWebShutdownNative() {
+        if (!qEnvironmentVariableIsSet("WHAT_TEST_WEBVIEW2"))
+            QSKIP("Set WHAT_TEST_WEBVIEW2=1 to test native browser shutdown.");
+        QFETCH(bool, pending);
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        dir.setAutoRemove(false);
+        const auto profilePath = dir.path();
+        const auto cleanup = qScopeGuard([profilePath] {
+            if (!QTest::qWaitFor([&] { return QDir(profilePath).removeRecursively(); }, 10000))
+                qWarning("WebView2 still holds the shutdown test profile");
+        });
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        connect(&server, &QTcpServer::newConnection, this, [&] {
+            while (auto *socket = server.nextPendingConnection()) {
+                connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+                connect(socket, &QTcpSocket::readyRead, socket, [socket] {
+                    socket->readAll();
+                    socket->write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+                    socket->disconnectFromHost();
+                });
+            }
+        });
+        QSettings settings(dir.filePath("settings.yaml"), SettingsStore::format());
+        HomeAssistantWeb web(settings, dir.path(), true);
+        QVERIFY(web.configure(QString("http://127.0.0.1:%1/").arg(server.serverPort()), "windowed", 80, ""));
+        web.setEnabled(true);
+        web.browserWindow()->resize(320, 240);
+        web.browserWindow()->show();
+        web.setPresented(true);
+        if (!pending)
+            QTRY_VERIFY_WITH_TIMEOUT(web.ready(), 20000);
+        web.shutdown();
+        // Keep the owner alive after its host surface is destroyed so a late
+        // WebView2 callback cannot attach another controller or restart recovery.
+        web.browserWindow()->destroy();
+        web.setPresented(true);
+        web.reload();
+        QTest::qWait(1000);
+        QVERIFY(!web.ready());
+        QVERIFY(!web.loading());
+        QVERIFY(web.enabled());
     }
 
     void homeAssistantWebHotkey() {
@@ -8584,6 +8661,152 @@ private slots:
             delegates += item->property("modelData").isValid();
         // Transitions must keep virtualization, including their temporary exiting rows.
         QVERIFY(delegates < 512);
+        auto visibleRows = [&](bool headers) {
+            int count = 0;
+            for (const auto *item : content->childItems()) {
+                const auto data = item->property("modelData").toMap();
+                if (data.isEmpty() || data["header"].toBool() != headers ||
+                    item->property("pooled").toBool() || item->property("retiring").toBool() ||
+                    !item->isVisible() || item->opacity() < 0.9)
+                    continue;
+                const auto top = item->mapToItem(list, QPointF{}).y();
+                count += top < list->height() && top + item->height() > 0;
+            }
+            return count;
+        };
+        // A nonempty model is not enough: the viewport must still paint rows
+        // after bulk edits from the middle/end and while transitions overlap.
+        for (const int position : {1500, 3019, 0, 2900}) {
+            QVERIFY(QMetaObject::invokeMethod(list, "positionViewAtIndex",
+                                             Q_ARG(int, position), Q_ARG(int, 0)));
+            QTRY_VERIFY(visibleRows(false) > 0);
+            click("collapseSensorGroups");
+            QCOMPARE(local.browserModel.rowCount(), 20);
+            QTRY_VERIFY2(visibleRows(true) > 0,
+                         qPrintable(QString("Collapsed list blank: y=%1 height=%2 origin=%3")
+                                        .arg(list->property("contentY").toReal())
+                                        .arg(list->property("contentHeight").toReal())
+                                        .arg(list->property("originY").toReal())));
+            click("expandSensorGroups");
+            QCOMPARE(local.browserModel.rowCount(), 3020);
+            QTRY_VERIFY(visibleRows(false) > 0);
+        }
+        for (int attempt = 0; attempt < 8; ++attempt) {
+            click("collapseSensorGroups");
+            click("expandSensorGroups");
+            QTest::qWait(15);
+        }
+        QTRY_VERIFY(visibleRows(false) > 0);
+        click("collapseSensorGroups");
+        QTRY_VERIFY(visibleRows(true) > 0);
+        window->hide();
+    }
+
+    void sensorBulkGroupsStayVisible_data() {
+        QTest::addColumn<int>("groups");
+        QTest::addColumn<bool>("animated");
+        QTest::newRow("few-roots-animated") << 4 << true;
+        QTest::newRow("many-roots-animated") << 400 << true;
+        QTest::newRow("few-roots-instant") << 4 << false;
+    }
+
+    void sensorBulkGroupsStayVisible() {
+        QFETCH(int, groups);
+        QFETCH(bool, animated);
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Controller local(dir.path(), true);
+        UpdateManager updater(dir.path(), true);
+        local.stopService();
+        local.sampleTimer.stop();
+        local.hwinfoTimer.stop();
+        local.setModuleEnabled("windows", false);
+        local.setAnimationsEnabled(animated);
+        local.setUiTiming("panels", 600);
+        local.setUiTiming("lists", 600);
+        QJsonArray readings;
+        for (int n = 0; n < 4000; ++n) {
+            const auto group = QString("hwinfo / Device%1").arg(n % groups, 3, 10, QChar('0'));
+            const auto category = group + "/cores";
+            readings.append(QJsonObject{{"id", QString("bulk_%1").arg(n)},
+                                        {"source", "hwinfo"}, {"group", group},
+                                        {"categoryKey", category}, {"parentCategory", group},
+                                        {"name", QString("Reading %1").arg(n)},
+                                        {"kind", "number"}, {"value", n}, {"available", true}});
+        }
+        local.mergeReadings("hwinfo", readings);
+        local.setBrowserFilters("", "hwinfo", false, false);
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties(
+            {{"controller", QVariant::fromValue(&local)}, {"updater", QVariant::fromValue(&updater)}});
+        engine.load(QUrl("qrc:/qml/Main.qml"));
+        QVERIFY(!engine.rootObjects().isEmpty());
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        window->show();
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        window->setProperty("previewPage", 1);
+        auto *stack = window->findChild<QObject *>("pageStack");
+        QVERIFY(stack);
+        QTRY_VERIFY(!stack->property("moving").toBool());
+        QTRY_COMPARE(local.browserModel.rowCount(), groups);
+        auto *list = window->findChild<QQuickItem *>("sensorList");
+        QVERIFY(list);
+        auto *content = qvariant_cast<QQuickItem *>(list->property("contentItem"));
+        QVERIFY(content);
+        auto visibleRows = [&] {
+            int count = 0;
+            for (auto *item : content->childItems()) {
+                if (!item->property("modelData").isValid() || item->property("pooled").toBool() ||
+                    item->property("retiring").toBool() || !item->isVisible() || item->opacity() < 0.9)
+                    continue;
+                const auto top = item->mapToItem(list, QPointF{}).y();
+                count += top < list->height() && top + item->height() > 0;
+            }
+            return count;
+        };
+        auto click = [&](bool close) {
+            auto *button = window->findChild<QQuickItem *>(close ? "collapseSensorGroups" : "expandSensorGroups");
+            QVERIFY(button && button->isVisible());
+            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                              button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint(), 0);
+        };
+        auto firstGroupVisible = [&] {
+            for (auto *item : content->childItems()) {
+                if (!item->property("modelData").isValid() || item->property("index").toInt() != 0 ||
+                    item->property("pooled").toBool() || item->property("retiring").toBool() ||
+                    !item->isVisible() || item->opacity() < 0.9)
+                    continue;
+                const auto top = item->mapToItem(list, QPointF{}).y();
+                return qAbs(top) <= 1 && item->height() > 0;
+            }
+            return false;
+        };
+        for (int iteration = 0; iteration < 6; ++iteration) {
+            click(false);
+            QTRY_COMPARE(local.browserModel.rowCount(), 4000 + groups * 2);
+            QTRY_VERIFY(visibleRows() > 0);
+            QTRY_VERIFY(firstGroupVisible());
+            QVERIFY(QMetaObject::invokeMethod(list, "positionViewAtEnd"));
+            QTRY_VERIFY(visibleRows() > 0);
+            QTest::qWait(20);
+            if (iteration % 2 == 0) {
+                auto *wheel = window->findChild<QObject *>("sensorWheel");
+                QVERIFY(wheel);
+                QVERIFY(QMetaObject::invokeMethod(wheel, "scrollBy", Q_ARG(QVariant, 360),
+                                                 Q_ARG(QVariant, false)));
+            } else {
+                QVERIFY(QMetaObject::invokeMethod(list, "flick", Q_ARG(qreal, 0), Q_ARG(qreal, 3000)));
+            }
+            click(true);
+            QCOMPARE(local.browserModel.rowCount(), groups);
+            QTRY_VERIFY(firstGroupVisible());
+            QVERIFY(!list->property("moving").toBool());
+            QTRY_VERIFY2(visibleRows() > 0,
+                         qPrintable(QString("Blank viewport: y=%1 height=%2 origin=%3")
+                                        .arg(list->property("contentY").toReal())
+                                        .arg(list->property("contentHeight").toReal())
+                                        .arg(list->property("originY").toReal())));
+        }
         window->hide();
     }
 
@@ -14838,6 +15061,7 @@ int main(int argc, char **argv) {
         UpdateManager updater(dir.path(), true);
         TaskbarIconManager icons(dir.filePath("taskbar.yaml"), false);
         QQmlApplicationEngine engine;
+        installGuiShutdown(engine, *local.homeAssistantWeb);
         engine.setInitialProperties({{"controller", QVariant::fromValue(&local)},
                                      {"updater", QVariant::fromValue(&updater)}});
         engine.load(QUrl("qrc:/qml/Main.qml"));
@@ -14850,6 +15074,27 @@ int main(int argc, char **argv) {
         QObject::connect(&icons, &TaskbarIconManager::openRequested, window,
                          [window] { restoreWhatWindow(window); });
         const int count = QByteArray(argv[2]).toInt();
+        auto *overlay = window->findChild<QQuickWindow *>("homeAssistantWebOverlay");
+        auto *desktop = window->findChild<QQuickWindow *>("homeAssistantWebDesktop");
+        if (!overlay || !desktop)
+            return 6;
+        // Render all three surfaces, including one hidden before quitting. This
+        // catches leaving persistent GPU resources alive in detached windows.
+        std::atomic<int> rendered{0}, invalidated{0};
+        const auto disconnectCounters = qScopeGuard([&] {
+            for (auto *view : {window, overlay, desktop})
+                QObject::disconnect(view, nullptr, view, nullptr);
+        });
+        for (auto *view : {window, overlay, desktop}) {
+            QObject::connect(view, &QQuickWindow::sceneGraphInitialized, view,
+                             [&] { ++rendered; }, Qt::DirectConnection);
+            QObject::connect(view, &QQuickWindow::sceneGraphInvalidated, view,
+                             [&] { ++invalidated; }, Qt::DirectConnection);
+        }
+        overlay->resize(320, 240);
+        desktop->resize(320, 240);
+        overlay->show();
+        desktop->show();
         icons.setReadings({QVariantMap{{"id", "cpu"}, {"name", "Core Max"},
             {"kind", "number"}, {"unit", "C"}, {"value", 54.3}, {"available", true}}});
         for (int i = 0; i < count; ++i)
@@ -14861,9 +15106,10 @@ int main(int argc, char **argv) {
             for (auto *widget : QApplication::topLevelWidgets())
                 if (widget->objectName().startsWith("taskbarPanel_") && widget->isVisible())
                     ++visibleIcons;
-            if (!window->isExposed() || visibleIcons != count)
+            if (!window->isExposed() || visibleIcons != count || rendered.load() < 3)
                 return;
             ready.stop();
+            desktop->hide();
             QMetaObject::invokeMethod(window, "openQuitConfirmation");
             if (installerQuit) {
                 // Deliver the installer's native message while the ordinary quit
@@ -14886,7 +15132,14 @@ int main(int argc, char **argv) {
             qWarning("Confirmed Quit did not exit the application with %d extra app icons", count);
             app.exit(4);
         });
-        return app.exec();
+        const auto result = app.exec();
+        // aboutToQuit must finish cleanup before engine or Controller destruction.
+        if (result == 0 && (invalidated.load() != 3 || window->isVisible() ||
+                           overlay->isVisible() || desktop->isVisible())) {
+            qWarning("Graphics shutdown incomplete: %d of 3 scenes invalidated", invalidated.load());
+            return 7;
+        }
+        return result;
     }
     ControllerTests tests;
     return QTest::qExec(&tests, argc, argv);
