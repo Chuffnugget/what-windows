@@ -13,7 +13,7 @@ ModuleCard {
     moduleKey: "windows"
     heading: "Windows"
     summary: "System sensors and optional personal data"
-    keywords: "windows security defender antivirus firewall updates display displays topology layout primary mirror extend disconnect system storage disk memory audio network power polling interval user session idle lock remote control reboot shutdown hibernate monitor sleep url web browser plans foreground application window titles privacy microphone events errors messages media track notifications contents speech tts speak announcements replies actions shell powershell pwsh cmd wsl command commands terminal output stream debugging debug"
+    keywords: "windows security defender antivirus firewall updates display displays topology layout primary mirror extend disconnect system storage disk memory audio network power polling interval user session idle lock remote control reboot shutdown hibernate monitor sleep url web browser plans foreground application window titles privacy microphone camera bluetooth ble printers virtual desktop location signal levels events errors messages media track notifications contents speech tts speak announcements replies actions shell powershell pwsh cmd wsl command commands terminal output stream debugging debug"
 
     RowLayout {
         Layout.fillWidth: true
@@ -67,7 +67,7 @@ ModuleCard {
         HintLabel {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
-            text: "Windows protects Wi-Fi details with its location permission. WHAT uses this for the network name and signal strength, not GPS coordinates. Declining only makes these readings unavailable; other network readings and Home Assistant connections still work."
+            text: "Windows protects Wi-Fi details with its location permission. Wi-Fi Details uses this for the network name and signal strength. Coordinates are collected only if you separately enable Location below. Declining only makes these readings unavailable; other network readings and Home Assistant connections still work."
         }
 
         HintLabel {
@@ -84,6 +84,87 @@ ModuleCard {
             text: "Open Windows Location Settings"
             ToolTip.text: "Allow location access for WHAT in Windows. After a denial, Windows does not show the one-time prompt again. Readings resume automatically after permission is restored and Wi-Fi Details is enabled."
             onClicked: Qt.openUrlExternally("ms-settings:privacy-location")
+        }
+    }
+
+    // Delegates remain direct siblings of the other submodules, preserving the
+    // one-expanded-section rule and the existing slide/scroll behaviour.
+    Repeater {
+        model: [
+            {
+                "key": "audio_activity",
+                "title": "Audio Device Activity",
+                "detail": "Microphone and speaker use, applications, volume and mute",
+                "help": "Reads active Windows audio sessions for each input and output device once per second. Exclusive-mode and protected applications may not identify themselves. No audio is recorded.",
+                "settings": "privacy-microphone",
+                "settingsTitle": "Microphone"
+            },
+            {
+                "key": "audio_levels",
+                "title": "Live Audio Levels",
+                "detail": "Per-device microphone and speaker signal meters",
+                "help": "Measures signal strength and up to eight channels using Windows peak meters. Expand a reading to see its live meter. This is signal level before endpoint volume, not the volume setting. Muted outputs may still show a signal; software meters can show zero in exclusive mode. No audio is captured or sent."
+            },
+            {
+                "key": "camera_usage",
+                "title": "Camera Usage",
+                "detail": "Windows-reported activity and application names",
+                "help": "Reads Windows camera usage records once per second without opening the camera. Windows can omit applications or retain stale records, so this is a best-effort activity indicator, not a security guarantee. No images are captured.",
+                "settings": "privacy-webcam",
+                "settingsTitle": "Camera"
+            },
+            {
+                "key": "printers",
+                "title": "Printers",
+                "detail": "Installed printers, status and queued jobs",
+                "help": "Reads the Windows spooler every 30 seconds. Status depends on the printer driver; disconnected printers may not report promptly.",
+                "settings": "printers",
+                "settingsTitle": "Printer"
+            },
+            {
+                "key": "windows_updates",
+                "title": "Windows Updates",
+                "detail": "Pending updates and restart requirement",
+                "help": "Reads the cached Windows Update catalogue every 15 minutes. WHAT does not search online, download or install updates. Windows must have completed its own update scan first.",
+                "settings": "windowsupdate",
+                "settingsTitle": "Update"
+            },
+            {
+                "key": "virtual_desktop",
+                "title": "Virtual Desktop",
+                "detail": "Current desktop ID, name and number",
+                "help": "Checks the foreground window's desktop once per second. Desktop names and numbers are included when Windows exposes them; these may be unavailable on some Windows versions."
+            },
+            {
+                "key": "location",
+                "title": "Location",
+                "detail": "Latitude, longitude, accuracy and altitude",
+                "help": "Requests Windows location access only when you enable this or press Request Location Access. Reads a position at most once per minute. Accuracy depends on available hardware and Windows location services; sharing coordinates reveals this PC's location.",
+                "settings": "privacy-location",
+                "settingsTitle": "Location"
+            },
+            {
+                "key": "bluetooth",
+                "title": "Bluetooth Devices",
+                "detail": "Radios, paired devices, connection state and available battery levels",
+                "help": "Reads Windows device information every 10 seconds. Battery appears only when Windows exposes it. WHAT does not pair with devices or connect to them to obtain battery data.",
+                "settings": "bluetooth",
+                "settingsTitle": "Bluetooth"
+            },
+            {
+                "key": "bluetooth_le",
+                "title": "Nearby Bluetooth LE Devices",
+                "detail": "Passive discovery, signal strength and last seen",
+                "help": "Passively listens for Bluetooth LE advertisements. Up to 128 recent devices are listed; signals become unavailable after 30 seconds and observations expire after 15 minutes. Randomised addresses can create separate entries. Signal strength is not distance, and this does not act as a Home Assistant Bluetooth proxy.",
+                "settings": "bluetooth",
+                "settingsTitle": "Bluetooth"
+            }
+        ]
+        delegate: OptionalWindowsSection {
+            required property var modelData
+            definition: modelData
+            controller: windowsSettings.controller
+            query: windowsSettings.query
         }
     }
 

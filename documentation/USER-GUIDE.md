@@ -321,6 +321,60 @@ Once transmitted, HA may retain sensitive values in recorder history. Turning
 an option off masks cached/in-flight values and stops further sharing; it cannot
 erase existing HA history.
 
+## Optional Windows device sensors
+
+Enable these individually under **Modules > Windows**. All nine additions are off
+for both new and existing profiles. Enabling collection does not automatically
+share readings: select the ones you want under **Sensors > Windows**, with Local
+and Cloud choices for each reading. Turning a feature off stops new collection and
+withholds cached and pending values immediately. A native request already running
+may finish in the background, but its result is discarded.
+
+| Submodule | Readings | Collection interval |
+| --- | --- | --- |
+| Audio Device Activity | Per-input/output active audio sessions, application names, volume and mute | 1 second |
+| Live Audio Levels | Per-device peak signal and up to eight channels | 500 ms by default, configurable from 200 to 2000 ms; up to 30 samples/second for an expanded, visible meter |
+| Camera Usage | Windows-reported activity and application names | 1 second |
+| Printers | Installed count, status, queued jobs and offline flag | 30 seconds |
+| Windows Updates | Pending updates in the cached catalogue, restart requirement and catalogue-read time | 15 minutes |
+| Virtual Desktop | Current desktop ID and, where exposed, name and number | 1 second |
+| Location | Latitude, longitude, accuracy, altitude where available, position timestamp | 1 minute |
+| Bluetooth Devices | Radio state, paired devices, connection state, battery where Windows exposes it | 10 seconds |
+| Nearby Bluetooth LE Devices | Passive advertisements, RSSI, last seen and recently-seen flag | 1 second snapshots |
+
+Audio signal strength differs from a volume setting. Windows meters measure the
+signal before endpoint volume; a muted output can still have a signal, and a
+software meter can read zero in exclusive mode. WHAT does not record, encode or
+transmit audio. The expanded local meter uses a separate lightweight update path;
+Home Assistant delivery also depends on the selected Normal/Fast update interval.
+Exclusive or protected audio applications may not identify themselves.
+
+Camera activity uses Windows usage records without opening a camera. These records
+can be missing or stale and may omit applications. Treat this as a best-effort
+activity indication, not a security guarantee. No camera images are captured.
+
+Location asks for Windows consent when explicitly enabled or when **Request
+Location Access** is pressed. It does not display a consent prompt at startup.
+After a denial, use **Open Windows Location Settings** to restore access. Sharing
+coordinates or application names may put them in Home Assistant's recorder history;
+disabling collection cannot erase information already received by Home Assistant.
+
+The update sensor uses Windows' cached catalogue, without searching online,
+downloading or installing anything. Printer status depends on the driver.
+Virtual desktop names and numbers use information Windows does not expose on
+every version; unavailable details are left unavailable.
+
+Bluetooth collection never pairs with devices or connects to obtain battery data.
+The separate BLE option starts passive listening, keeps at most 128 observations
+for 15 minutes, and considers a device recent for 30 seconds. Old signal readings
+become unavailable. Randomised Bluetooth addresses can produce separate entries;
+RSSI is not a distance measurement. This is not a Home Assistant Bluetooth proxy.
+
+Slow Windows APIs run on independent workers. A source that stops replying has its
+old readings withheld after 30 seconds while its existing request finishes; WHAT
+does not start an unbounded queue of replacement calls. Issues appear in the
+Windows module and on Overview only while the affected submodule is enabled.
+
 ## Optional notification installation
 
 Most features work in the portable EXE. Windows notification access needs package

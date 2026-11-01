@@ -1,4 +1,5 @@
 #pragma once
+#include "modules/windows/optional/OptionalWindowsSources.h"
 #include "modules/beacn/BeacnModule.h"
 #include "app/SensorTrayManager.h"
 #include "app/ColourPalette.h"
@@ -80,6 +81,9 @@ class Controller : public QObject, public QAbstractNativeEventFilter {
     Q_PROPERTY(QString specsNotice READ specsNotice NOTIFY specsChanged)
     Q_PROPERTY(QStringList specsIssues READ specsIssues NOTIFY specsChanged)
 public:
+    Q_PROPERTY(OptionalWindowsSources *optionalWindows MEMBER optionalWindows CONSTANT)
+    OptionalWindowsSources *optionalWindows = nullptr;
+    Q_INVOKABLE void saveAudioMeterInterval(int milliseconds);
     CustomModule *customSources = nullptr;
     HomeAssistantWeb *homeAssistantWeb = nullptr;
     Announcements *announcements = nullptr;

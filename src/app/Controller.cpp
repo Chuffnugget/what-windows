@@ -86,6 +86,14 @@ Controller::Controller(const QString &dir, bool testing, QObject *parent)
             snapshotTimer.start();
         }
     };
+    optionalWindows = new OptionalWindowsSources(this);
+    connect(optionalWindows, &OptionalWindowsSources::readingsReady, this,
+            [this](const QString &feature, const QJsonArray &rows) {
+                mergeReadings("windows", rows, OptionalWindows::scopeForId("win_opt_" + feature + "_status"));
+                publish();
+                emit sensorsChanged();
+            });
+    connect(optionalWindows, &OptionalWindowsSources::issuesChanged, this, &Controller::changed);
     const auto importMessage = ConfigurationFile::applyPending(settings);
     if (!testMode) {
         QSettings run("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
@@ -526,6 +534,8 @@ Controller::Controller(const QString &dir, bool testing, QObject *parent)
 }
 
 Controller::~Controller() {
+    delete optionalWindows;
+    optionalWindows = nullptr;
     // The browser's final PiP position still needs the live settings object.
     homeAssistantWeb->disconnect(this);
     delete homeAssistantWeb;
@@ -782,6 +792,7 @@ QVariantMap Controller::buildInfo(int activeSelected) const {
         {"windowsHealthy", moduleEnabled("windows") && windowsClock.isValid() &&
                                windowsClock.elapsed() < qMax(30000, sampleTimer.interval() * 3)},
         {"sources", sourceOptions().toVariantMap()},
+        {"audioMeterInterval", qBound(200, settings.value("sources/audio_level_ms", 500).toInt(), 2000)},
         {"hwinfoEnabled", settings.value("sources/hwinfo", true).toBool()},
         {"browserQuery", filters.value("query", "")},
         {"browserSource", filters.value("source", "all")},

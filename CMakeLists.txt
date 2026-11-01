@@ -302,6 +302,7 @@ set(WHAT_QML_FILES
     qml/modules/PollingInput.qml
     qml/modules/SourceOption.qml
     qml/modules/WallpaperSettings.qml
+    qml/modules/OptionalWindowsSection.qml
     qml/modules/WindowsSettings.qml
     qml/pages/AboutPage.qml
     qml/pages/DiagnosticsPage.qml
@@ -317,6 +318,7 @@ set(WHAT_QML_FILES
     qml/sensors/BrowserChoice.qml
     qml/sensors/BrowserColour.qml
     qml/sensors/BrowserDeviceControls.qml
+    qml/sensors/BrowserAudioMeter.qml
     qml/sensors/BrowserMeter.qml
     qml/sensors/BrowserWallpaper.qml
     qml/sensors/HaEntityDetails.qml
@@ -655,12 +657,20 @@ add_library(what_startup STATIC src/app/StartupRegistration.cpp)
 target_compile_features(what_startup PRIVATE cxx_std_20)
 target_link_libraries(what_startup PUBLIC Qt6::Core windowsapp)
 
-target_link_libraries(WHAT PRIVATE what_media what_haweb what_startup)
+add_library(what_optional_windows STATIC
+    src/modules/windows/optional/OptionalWindowsSources.h
+    src/modules/windows/optional/OptionalWindowsSources.cpp
+    src/modules/windows/optional/OptionalWindowsNative.cpp)
+target_include_directories(what_optional_windows PRIVATE src)
+target_compile_features(what_optional_windows PRIVATE cxx_std_20)
+target_compile_definitions(what_optional_windows PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(what_optional_windows PUBLIC Qt6::Core Qt6::Gui windowsapp ole32 uuid winspool propsys)
+target_link_libraries(WHAT PRIVATE what_media what_haweb what_startup what_optional_windows)
 if(TARGET controller_tests)
     if(MSVC)
         # Qt's template-heavy Debug test translation unit exceeds COFF's
         # ordinary section limit; Release optimizes many of these sections away.
         target_compile_options(controller_tests PRIVATE /bigobj)
     endif()
-    target_link_libraries(controller_tests PRIVATE what_media what_haweb what_startup)
+    target_link_libraries(controller_tests PRIVATE what_media what_haweb what_startup what_optional_windows)
 endif()

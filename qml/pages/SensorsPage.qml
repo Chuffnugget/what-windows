@@ -1238,6 +1238,17 @@ ColumnLayout {
                             }
                         }
 
+                        Loader {
+                            active: sensorRow.modelData.id.indexOf("win_opt_audio_levels_") === 0
+                            visible: active
+                            Layout.fillWidth: true
+                            sourceComponent: BrowserAudioMeter {
+                                source: sensorsPage.controller.optionalWindows
+                                readingId: sensorRow.modelData.id
+                                active: sensorRow.expanded && sensorsPage.visible
+                            }
+                        }
+
                         // The collapsed command row already shows this exact group.
                         PermissionBadges {
                             objectName: "readingAccessBadge"

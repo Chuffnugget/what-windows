@@ -160,6 +160,8 @@ bool Controller::readingBrowserEnabled(const QJsonObject &row) const {
         return true;
     const auto id = row["id"].toString();
     const auto options = sourceOptions();
+    if (!OptionalWindows::permitted(id, options))
+        return false;
     if (id.startsWith("win_display_") && !displaysEnabled())
         return false;
     if (id.startsWith("win_net_") && (id.endsWith("_wifi_signal") || id.endsWith("_ssid")) &&
@@ -357,6 +359,8 @@ QJsonObject Controller::sourceOptions() const {
                        QString(key) == "hwinfo" || QString(key) == "session" ||
                            QString(key) == "wifi" || QString(key) == "auto_drives")
                 .toBool();
+    for (const auto &key : OptionalWindows::keys())
+        options[key] = settings.value("sources/" + key, false).toBool();
     return options;
 }
 
@@ -390,7 +394,16 @@ void Controller::saveSources(const QVariantMap &options) {
     log("Collection sources and privacy settings saved");
 }
 
+void Controller::saveAudioMeterInterval(int milliseconds) {
+    settings.setValue("sources/audio_level_ms", qBound(200, milliseconds, 2000));
+    scheduleSettingsFlush();
+    sampleWindows();
+    emit changed();
+}
+
 void Controller::sampleWindows() {
+    optionalWindows->configure(sourceOptions(), moduleEnabled("windows"), testMode,
+                               settings.value("sources/audio_level_ms", 500).toInt());
     pollDisplays();
     if (!moduleEnabled("windows"))
         return;
@@ -528,7 +541,8 @@ Controller::prepareReadingsUpdate(const QString &source, int scope) {
             const auto previous = catalog.value(id);
             if (incoming.contains(id))
                 continue;
-            const int rowScope = id.startsWith("win_media_")     ? 7
+            const int rowScope = id.startsWith("win_opt_") ? OptionalWindows::scopeForId(id)
+                                 : id.startsWith("win_media_") ? 7
                                  : id.startsWith("win_display_") ? 6
                                  : source == "icue" ? (previous.value("icueAutomation").toBool() ? 4 : 5)
                                  : id.startsWith("win_disk_")
@@ -652,6 +666,7 @@ std::function<QJsonArray()> Controller::captureReadings(const QSet<QString> *ids
     const bool subset = ids != nullptr;
     const auto wanted = ids ? *ids : QSet<QString>{};
     const auto options = sourceOptions();
+    const bool optionalEnabled = moduleEnabled("windows");
     const bool windowsReady = moduleEnabled("windows") && windowsClock.isValid() &&
                               windowsClock.elapsed() < qMax(30000, sampleTimer.interval() * 3);
     const bool hwinfoReady = healthy(), hwinfoValid = latest.valid;
@@ -733,6 +748,8 @@ std::function<QJsonArray()> Controller::captureReadings(const QSet<QString> *ids
                                   id.startsWith("win_notifications_");
                 const bool storage = id.startsWith("win_disk_");
                 allowed = storage ? storageReady : slow ? slowReady : windowsReady;
+                if (id.startsWith("win_opt_"))
+                    allowed = optionalEnabled && OptionalWindows::permitted(id, options);
                 if (id.startsWith("win_display_"))
                     allowed = displaysReady;
                 if (id.startsWith("win_events_"))
@@ -941,6 +958,8 @@ std::function<Controller::BrowserInput()> Controller::captureBrowserInput(bool r
             if (row["source"] != "windows")
                 return true;
             const auto id = row["id"].toString();
+            if (!OptionalWindows::permitted(id, options))
+                return false;
             if (id.startsWith("win_display_") && !displaysEnabled)
                 return false;
             if (id.startsWith("win_net_") && (id.endsWith("_wifi_signal") || id.endsWith("_ssid")) &&

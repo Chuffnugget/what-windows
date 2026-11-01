@@ -47,5 +47,6 @@
     <uap3:Capability Name="userNotificationListener" /><uap7:Capability Name="globalMediaControl" />
     <!-- Wi-Fi network name and signal strength use Windows location consent. -->
     <DeviceCapability Name="location" />
+    <DeviceCapability Name="bluetooth" />
   </Capabilities>
 </Package>

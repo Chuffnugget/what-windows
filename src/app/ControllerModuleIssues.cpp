@@ -51,6 +51,12 @@ QVariantMap Controller::moduleIssues() const {
         add("wallpaper", wallpaperData["status"].toString("Start Wallpaper Engine to connect."));
 
     const auto sources = sourceOptions();
+    if (optionalWindows) {
+        const auto optionalIssues = optionalWindows->issues();
+        for (auto it = optionalIssues.cbegin(); it != optionalIssues.cend(); ++it)
+            if (sources[it.key()].toBool())
+                add("windows", QString(it.key()).replace('_', ' ') + ": " + it.value().toString());
+    }
     if (sources["wifi"].toBool())
         add("windows", wifiIssue);
     const auto worker = [&](const QString &module, const QString &name, bool enabled = true) {

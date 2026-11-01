@@ -14,7 +14,8 @@
 // Call the public methods from the owner's thread; only the work runs elsewhere.
 class BackgroundWorker : public QObject {
 public:
-    explicit BackgroundWorker(QString name, QObject *parent = nullptr) : QObject(parent) {
+    explicit BackgroundWorker(QString name, QObject *parent = nullptr, unsigned long shutdownWaitMs = 250)
+        : QObject(parent), shutdownWaitMs(shutdownWaitMs) {
         delivery->owner = this;
         thread = new QThread;
         thread->setObjectName(name);
@@ -37,7 +38,7 @@ public:
             context, [workerThread = thread] { workerThread->quit(); }, Qt::QueuedConnection);
         // Don't block shutdown on an OS call we can't cancel. The job keeps its own
         // copies alive until it returns, and its result is simply discarded.
-        thread->wait(250);
+        thread->wait(shutdownWaitMs);
     }
 
     // Queue a write in FIFO order. The caller must bound the queue and own all captured state.
@@ -110,4 +111,5 @@ private:
     QThread *thread;
     QObject *context;
     bool busy = false;
+    const unsigned long shutdownWaitMs;
 };

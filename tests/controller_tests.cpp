@@ -195,6 +195,174 @@ private slots:
     void nestedSettingsExpandTogether_data();
     void nestedSettingsExpandTogether();
 
+    void optionalWindowsSourcesRequireExplicitConsent() {
+        QTemporaryDir dir;
+        Controller local(dir.path(), true);
+        const auto keys = OptionalWindows::keys();
+        QCOMPARE(keys.size(), 9);
+        for (const auto &key : keys) {
+            QVERIFY(!local.sourceOptions()[key].toBool());
+            QVERIFY(!local.settings.contains("sources/" + key));
+        }
+        QVERIFY(local.optionalWindows->jobs.empty());
+        QVERIFY(!local.optionalWindows->timer.isActive());
+        QCOMPARE(OptionalWindows::featureForId("win_opt_bluetooth_le_device_rssi"), QString("bluetooth_le"));
+        QVERIFY(!OptionalWindows::permitted("win_opt_unknown_reading", {{"unknown", true}}));
+        QVERIFY(OptionalWindows::permitted("win_cpu_usage", {}));
+        QSet<int> scopes;
+        for (const auto &key : keys) scopes.insert(OptionalWindows::scopeForId("win_opt_" + key + "_test"));
+        QCOMPARE(scopes.size(), keys.size());
+
+        const auto row = [](const QString &feature) {
+            return QJsonObject{{"id", "win_opt_" + feature + "_test"}, {"source", "windows"},
+                {"name", "Optional Reading"}, {"group", "Optional"}, {"kind", "number"}, {"unit", "%"},
+                {"type", 0}, {"recommended", false}, {"available", true}, {"value", 42}};
+        };
+        local.mergeReadings("windows", {row("audio_levels"), row("bluetooth_le")});
+        QVERIFY(!local.readingBrowserEnabled(row("audio_levels")));
+        for (const auto &value : local.allReadings()) {
+            const auto reading = value.toObject();
+            if (reading["id"].toString().startsWith("win_opt_")) {
+                QVERIFY(!reading["available"].toBool());
+                QVERIFY(reading["value"].isNull());
+            }
+        }
+        local.saveSources({{"audio_levels", true}, {"bluetooth_le", true}});
+        QVERIFY(local.sourceOptions()["audio_levels"].toBool());
+        QVERIFY(local.sourceOptions()["bluetooth_le"].toBool());
+        QVERIFY(!local.sourceOptions()["bluetooth"].toBool());
+        QVERIFY(local.readingBrowserEnabled(row("audio_levels")));
+        QVERIFY(local.optionalWindows->jobs.empty()); // Test mode never opens hardware.
+        local.mergeReadings("windows", {row("audio_levels")}, OptionalWindows::scopeForId("win_opt_audio_levels_test"));
+        local.mergeReadings("windows", {row("bluetooth_le")}, OptionalWindows::scopeForId("win_opt_bluetooth_le_test"));
+        local.mergeReadings("windows", {}, 1); // Ordinary Windows polls must not erase optional readings.
+        QVERIFY(local.catalog.value("win_opt_audio_levels_test")["available"].toBool());
+        QVERIFY(local.catalog.value("win_opt_bluetooth_le_test")["available"].toBool());
+        QVERIFY(!local.selected.contains("win_opt_audio_levels_test"));
+        local.saveSources({{"audio_levels", false}});
+        QVERIFY(!local.readingBrowserEnabled(row("audio_levels")));
+        QVERIFY(!local.catalog.value("win_opt_audio_levels_test")["available"].toBool());
+        QVERIFY(local.catalog.value("win_opt_audio_levels_test")["value"].isNull());
+        QVERIFY(local.catalog.value("win_opt_bluetooth_le_test")["available"].toBool());
+        local.setModuleEnabled("windows", false);
+        QVERIFY(!local.readingBrowserEnabled(row("bluetooth_le")));
+        QVERIFY(!local.optionalWindows->timer.isActive());
+        local.saveAudioMeterInterval(1);
+        QCOMPARE(local.settings.value("sources/audio_level_ms").toInt(), 200);
+        local.saveAudioMeterInterval(99999);
+        QCOMPARE(local.settings.value("sources/audio_level_ms").toInt(), 2000);
+    }
+
+    void optionalWindowsRevocationDiscardsLateWork() {
+        OptionalWindowsSources sources;
+        auto entered = std::make_shared<QSemaphore>();
+        auto release = std::make_shared<QSemaphore>();
+        auto finished = std::make_shared<QSemaphore>();
+        sources.testCollector = [entered, release, finished](const QString &, const QJsonObject &) {
+            entered->release();
+            release->tryAcquire(1, 3000);
+            OptionalWindows::Result result;
+            result.rows.append(QJsonObject{{"id", "win_opt_location_latitude"}, {"value", 51}, {"available", true}});
+            finished->release();
+            return result;
+        };
+        QSignalSpy results(&sources, &OptionalWindowsSources::readingsReady);
+        sources.configure({{"location", true}}, true, true, 500);
+        QTRY_VERIFY(entered->available() > 0);
+        QElapsedTimer elapsed; elapsed.start();
+        sources.configure({}, true, true, 500);
+        QVERIFY2(elapsed.elapsed() < 150, "Disabling a pending native call blocked the GUI");
+        QVERIFY(sources.jobs.empty());
+        results.clear();
+        release->release();
+        QTRY_VERIFY(finished->available() > 0);
+        QTest::qWait(50);
+        QCOMPARE(results.size(), 0);
+        QVERIFY(!sources.timer.isActive());
+    }
+
+    void optionalAudioMetersSeparatePreviewFromPublishing() {
+        OptionalWindowsSources sources;
+        auto sequence = std::make_shared<std::atomic<int>>(0);
+        const QString id = "win_opt_audio_levels_device_peak";
+        sources.testCollector = [sequence, id](const QString &, const QJsonObject &) {
+            const int value = ++*sequence;
+            OptionalWindows::Result result;
+            result.meters[id] = value;
+            result.rows.append(QJsonObject{{"id", id}, {"value", value}, {"available", true}});
+            return result;
+        };
+        QSignalSpy changes(&sources, &OptionalWindowsSources::metersChanged);
+        QSignalSpy published(&sources, &OptionalWindowsSources::readingsReady);
+        sources.configure({{"audio_levels", true}}, true, true, 2000);
+        QTRY_VERIFY(sequence->load() >= 1);
+        QTRY_VERIFY(!sources.meters().isEmpty());
+        sources.watchMeter(id, true);
+        QCOMPARE(sources.timer.interval(), 33);
+        // Force due times through public reconfiguration, then let the normal timer sample.
+        sources.configure({{"audio_levels", true}}, true, true, 1000);
+        changes.clear(); published.clear();
+        QTRY_VERIFY_WITH_TIMEOUT(changes.size() >= 4, 2000);
+        int audioPublications = 0;
+        for (const auto &entry : published) if (entry[0].toString() == "audio_levels") ++audioPublications;
+        QVERIFY(audioPublications < changes.size());
+        sources.watchMeter(id, false);
+        QCOMPARE(sources.timer.interval(), 1000);
+        sources.configure({}, true, true, 500);
+        QVERIFY(sources.meters().isEmpty());
+        QVERIFY(sources.jobs.empty());
+        QVERIFY(!sources.timer.isActive());
+    }
+
+    void optionalWindowsModuleControlsAndMeter() {
+        QTemporaryDir dir;
+        Controller local(dir.path(), true);
+        QQmlEngine engine;
+        QQmlComponent section(&engine, QUrl("qrc:/qml/modules/OptionalWindowsSection.qml"));
+        QVERIFY2(section.isReady(), qPrintable(section.errorString()));
+        const QVariantMap definition{{"key", "audio_levels"}, {"title", "Live Audio Levels"},
+            {"detail", "Fixture"}, {"help", "Explicit opt-in"}};
+        std::unique_ptr<QObject> view(section.createWithInitialProperties({
+            {"controller", QVariant::fromValue(&local)}, {"definition", definition}}));
+        QVERIFY2(view != nullptr, qPrintable(section.errorString()));
+        QVERIFY(!view->property("active").toBool());
+        QVERIFY(QMetaObject::invokeMethod(view.get(), "toggled", Q_ARG(bool, true)));
+        QVERIFY(local.sourceOptions()["audio_levels"].toBool());
+        QTRY_VERIFY(view->property("active").toBool());
+        QVERIFY(QMetaObject::invokeMethod(view.get(), "toggled", Q_ARG(bool, false)));
+        QVERIFY(!local.sourceOptions()["audio_levels"].toBool());
+        auto *interval = view->findChild<QObject *>("audioMeterInterval");
+        QVERIFY(interval);
+        QCOMPARE(interval->property("from").toInt(), 200);
+        QCOMPARE(interval->property("to").toInt(), 2000);
+
+        QQmlComponent component(&engine, QUrl("qrc:/qml/sensors/BrowserAudioMeter.qml"));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        const QString id = "win_opt_audio_levels_fixture_peak";
+        std::unique_ptr<QObject> meter(component.createWithInitialProperties({
+            {"source", QVariant::fromValue(local.optionalWindows)}, {"readingId", id}}));
+        QVERIFY2(meter != nullptr, qPrintable(component.errorString()));
+        QVERIFY(!meter->property("available").toBool());
+        local.optionalWindows->meterValues[id] = 45.5;
+        emit local.optionalWindows->metersChanged();
+        QCOMPARE(meter->property("level").toDouble(), 45.5);
+        QVERIFY(meter->property("available").toBool());
+        local.optionalWindows->meterValues.clear();
+        emit local.optionalWindows->metersChanged();
+        QVERIFY(!meter->property("available").toBool());
+        QCOMPARE(meter->property("level").toDouble(), 0.0);
+        QVERIFY(local.optionalWindows->watched.isEmpty()); // A hidden meter never accelerates sampling.
+    }
+
+    void optionalCameraUsageIntervals() {
+        QVERIFY(!OptionalWindows::reportedInUse(0, 0));
+        QVERIFY(!OptionalWindows::reportedInUse(0, 500));
+        QVERIFY(OptionalWindows::reportedInUse(500, 0));
+        QVERIFY(OptionalWindows::reportedInUse(500, 400));
+        QVERIFY(!OptionalWindows::reportedInUse(500, 500));
+        QVERIFY(!OptionalWindows::reportedInUse(500, 600));
+    }
+
     void failedInstallationSwitchKeepsCurrentPeer() {
         QTemporaryDir dir;
         Controller local(dir.path(), true);

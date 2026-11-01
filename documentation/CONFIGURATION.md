@@ -40,7 +40,8 @@ Only one import can be queued; confirming another replaces it. The file is valid
 
 ## What is included
 
-- Module enablement, collection options and Home Assistant control permissions (restored only with the permissions checkbox).
+- Module enablement, collection options and Home Assistant control permissions (restored only with the permissions checkbox). This includes the individually opt-in audio, camera activity, printer, update, desktop, location and Bluetooth sources.
+- Live audio sensor update interval (200 to 2000 ms, default 500 ms).
 - Selected sensors, per-sensor Local/Cloud/Fast update policies, favourites and collapsed categories.
 - Sampling/publishing intervals, startup presentation, animation timings and update preferences.
 - Tray sensor assignments, colours and fonts.
