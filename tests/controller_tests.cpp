@@ -7721,7 +7721,14 @@ private slots:
         QCOMPARE(warnings.size(), 0);
     }
 
+    void sidebarLogoPlaysAfterResize_data() {
+        QTest::addColumn<bool>("delayedObservation");
+        QTest::newRow("normal") << false;
+        QTest::newRow("observe-after-animation") << true;
+    }
+
     void sidebarLogoPlaysAfterResize() {
+        QFETCH(bool, delayedObservation);
         QQmlApplicationEngine engine;
         QSignalSpy warnings(&engine, &QQmlEngine::warnings);
         engine.loadData(R"(
@@ -7729,63 +7736,108 @@ private slots:
             import "qrc:/qml/controls"
             import "qrc:/qml/components"
             Window {
+                id: navigationWindow
                 width: 700; height: 850
                 property bool animations: true
+                property var observedLogo: null
+                signal logoStateChanged(bool running, real sidebarWidth)
+                Connections {
+                    target: navigationWindow.observedLogo
+                    function onAnimatingChanged() {
+                        navigationWindow.logoStateChanged(
+                            navigationWindow.observedLogo.animating, navigation.width);
+                    }
+                }
                 onAnimationsChanged: Theme.animationsEnabled = animations
                 Component.onCompleted: {
                     Theme.animationsEnabled = true;
                     Theme.timings = Object.assign({}, Theme.timings,
                         {panels: 350, logo: 180, logoPause: 20});
                 }
-                NavigationBar { expandedWidth: 280; collapsed: true }
+                NavigationBar { id: navigation; expandedWidth: 280; collapsed: true }
             }
         )");
         QVERIFY(!engine.rootObjects().isEmpty());
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
-        window->show();
-        QVERIFY(QTest::qWaitForWindowExposed(window));
-        QTest::mouseMove(window, QPoint(600, 400));
+        QVERIFY(window);
         auto *sidebar = visualItem(window->contentItem(), "navigationSidebar");
         auto *logo = visualItem(sidebar, "animatedSidebarLogo");
         QVERIFY(sidebar && logo);
-        QSignalSpy playing(logo, SIGNAL(animatingChanged()));
+
+        // This tests resize-triggered playback, not native pointer delivery.
+        // Remove the live hover binding before showing the window so a user's
+        // mouse movement cannot start extra hover cycles during Build-All.
+        QVERIFY(QQmlProperty::write(logo, "hovered", false));
+        QVERIFY(window->setProperty("observedLogo", QVariant::fromValue(logo)));
+        QSignalSpy playing(window, SIGNAL(logoStateChanged(bool,double)));
         QVERIFY(playing.isValid());
+        window->show();
+        QVERIFY(QTest::qWaitForWindowExposed(window));
         QCOMPARE(sidebar->width(), 64.0);
         QTest::qWait(100);
         QVERIFY(!logo->property("animating").toBool());
         QCOMPARE(playing.size(), 0); // Restoring a collapsed sidebar is not a gesture.
 
-        const auto waitForOneCycle = [&](qreal width) {
-            QTRY_COMPARE(sidebar->width(), width);
-            QTRY_VERIFY(logo->property("animating").toBool());
+        QList<qreal> widths;
+        bool logoDuringResize = false;
+        bool reverseOnNextWidth = false;
+        QObject recorder; // Disconnect before the captured locals are destroyed, even on failure.
+        connect(sidebar, &QQuickItem::widthChanged, &recorder, [&] {
+            const qreal width = sidebar->width();
+            widths.append(width);
+            if (width > 64 && width < 280) {
+                logoDuringResize |= logo->property("animating").toBool();
+                if (reverseOnNextWidth) {
+                    reverseOnNextWidth = false;
+                    // Reverse after this frame is applied, without re-entering
+                    // the width Behavior from its own property notification.
+                    QTimer::singleShot(0, sidebar, [sidebar] {
+                        sidebar->setProperty("collapsed", true);
+                    });
+                }
+            }
+        });
+
+        for (int gesture = 0; gesture < 3; ++gesture) {
+            const bool alreadyHovering = gesture == 1;
+            const qreal targetWidth = gesture == 0 ? 280.0 : 64.0;
+            if (alreadyHovering) {
+                QVERIFY(QQmlProperty::write(logo, "hovered", true));
+                QTRY_VERIFY(logo->property("animating").toBool());
+            }
+            playing.clear();
+            widths.clear();
+            logoDuringResize = false;
+            reverseOnNextWidth = gesture == 2;
+            sidebar->setProperty("collapsed", alreadyHovering);
+
+            // The observer may resume after both animations have finished.
+            // Their signal history must still prove they ran in the right order.
+            if (delayedObservation)
+                QTest::qWait(800);
+            const int expectedTransitions = alreadyHovering ? 3 : 2;
+            QTRY_COMPARE(sidebar->width(), targetWidth);
+            QTRY_VERIFY(playing.size() >= expectedTransitions);
             QTRY_VERIFY(!logo->property("animating").toBool());
+            QCOMPARE(playing.size(), expectedTransitions);
+            QVERIFY(std::any_of(widths.cbegin(), widths.cend(), [](qreal width) {
+                return width > 64 && width < 280;
+            }));
+            QVERIFY(!reverseOnNextWidth);
+            QVERIFY(!logoDuringResize);
+            if (alreadyHovering)
+                QCOMPARE(playing.first().at(0).toBool(), false); // Hover cycle cancelled.
+            const auto &started = playing.at(expectedTransitions - 2);
+            const auto &stopped = playing.last();
+            QCOMPARE(started.at(0).toBool(), true);
+            QCOMPARE(started.at(1).toReal(), targetWidth); // Only after resizing.
+            QCOMPARE(stopped.at(0).toBool(), false);
+            QCOMPARE(stopped.at(1).toReal(), targetWidth);
             QCOMPARE(logo->property("progress").toReal(), 0.0);
-            QCOMPARE(playing.size(), 2); // One start and one stop.
             QTest::qWait(250);
-            QCOMPARE(playing.size(), 2);
-        };
-        sidebar->setProperty("collapsed", false);
-        QTRY_VERIFY(sidebar->width() > 64 && sidebar->width() < 280);
-        QVERIFY(!logo->property("animating").toBool());
-        waitForOneCycle(280);
-
-        // An existing hover cycle stops while resizing. The finishing gesture
-        // still plays only once when the pointer stays over the logo.
-        logo->setProperty("hovered", true);
-        QTRY_VERIFY(logo->property("animating").toBool());
-        sidebar->setProperty("collapsed", true);
-        QTRY_VERIFY(sidebar->width() > 64 && sidebar->width() < 280);
-        QVERIFY(!logo->property("animating").toBool());
-        playing.clear();
-        waitForOneCycle(64);
-        logo->setProperty("hovered", false);
-
-        // Several clicks during one transition coalesce into one final cycle.
-        playing.clear();
-        sidebar->setProperty("collapsed", false);
-        QTRY_VERIFY(sidebar->width() > 64 && sidebar->width() < 280);
-        sidebar->setProperty("collapsed", true);
-        waitForOneCycle(64);
+            QCOMPARE(playing.size(), expectedTransitions); // No repeat while still hovered.
+            QVERIFY(QQmlProperty::write(logo, "hovered", false));
+        }
 
         playing.clear();
         window->setProperty("animations", false);
