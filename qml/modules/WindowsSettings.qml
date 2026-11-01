@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import "../controls"
+import "../custom"
 
 ModuleCard {
     id: windowsSettings
@@ -13,7 +14,7 @@ ModuleCard {
     moduleKey: "windows"
     heading: "Windows"
     summary: "System sensors and optional personal data"
-    keywords: "windows security defender antivirus firewall updates display displays topology layout primary mirror extend disconnect system storage disk memory audio network power polling interval user session idle lock remote control reboot shutdown hibernate monitor sleep url web browser plans foreground application window titles privacy microphone camera bluetooth ble printers virtual desktop location signal levels events errors messages media track notifications contents speech tts speak announcements replies actions shell powershell pwsh cmd wsl command commands terminal output stream debugging debug"
+    keywords: "windows security defender antivirus firewall updates display displays topology layout primary mirror extend disconnect system storage disk memory audio network power polling interval user session idle lock remote control reboot shutdown hibernate monitor sleep url web browser plans foreground application window titles privacy microphone camera bluetooth ble printers virtual desktop location signal levels events errors messages media track notifications contents speech tts speak announcements replies actions shell powershell pwsh cmd wsl command commands named saved yaml terminal output stream debugging debug"
 
     RowLayout {
         Layout.fillWidth: true
@@ -171,31 +172,20 @@ ModuleCard {
     ModuleSection {
         searchContext: "windows"
         objectName: "commandsSubmodule"
-        title: "Allow Home Assistant to Send Shell Commands"
-        detail: "PowerShell, CMD and WSL supplied by Home Assistant - runs as your Windows user"
-        keywords: "shell terminal command output stream debug powershell pwsh cmd wsl permissions"
+        title: "Home Assistant Command Permissions"
+        detail: "Separate permissions for commands saved in WHAT and commands supplied by Home Assistant"
+        keywords: "shell terminal command named saved yaml output stream debug powershell pwsh cmd wsl permissions security"
         query: windowsSettings.query
-        active: windowsSettings.controller.info.controlPermissions.shell === true
-        onToggled: allowed => controller.setControlPermission("shell", allowed)
+        // These permissions are independent; there is no combined enable switch.
+        showToggle: false
 
-        PermissionBadge {
-            text: !windowsSettings.controller.info.controlPermissions.shell ? "Not Allowed"
-                : windowsSettings.controller.info.windowsEnabled ? "Home Assistant Shell Access" : "Blocked"
-            access: windowsSettings.controller.info.windowsEnabled && windowsSettings.controller.info.controlPermissions.shell
-                ? PermissionBadge.Shell : PermissionBadge.Blocked
-            help: "Home Assistant can supply scripts that run as your Windows user. This is broader access than triggering saved commands."
-        }
-
-        HintLabel {
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            color: Theme.error
-            text: "Home Assistant can supply commands from scripts, automations or its UI. If Home Assistant is compromised, this could allow access to files, settings and programs on this PC. Disabling this permission cancels active Home Assistant shell commands. Commands can also request that launched apps stay open after completion; WHAT no longer monitors or stops those apps."
+        CommandPermissions {
+            controller: windowsSettings.controller
         }
         HintLabel {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
-            text: "Saved commands have a separate permission under Custom. They are defined on this PC and triggered by ID; you do not need this broader shell permission to use them."
+            text: "Disabling YAML-supplied command access cancels active Home Assistant shell commands. Commands can request that launched apps stay open after completion; WHAT no longer monitors or stops those apps."
         }
         ActionButton {
             text: "Open Commands and Activity"

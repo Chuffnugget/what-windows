@@ -547,7 +547,8 @@ Saved commands also appear in the sensor browser with **Run Command** and
 **Edit Saved Command**. Local runs do not require HA permission. Remote access
 requires the Custom module to be enabled, plus:
 
-- **Allow Home Assistant to Run Saved Commands** on the Commands page.
+- **Allow Home Assistant to Run Named Commands Saved in WHAT** under
+  **Modules > Windows > Home Assistant Command Permissions** or on the Commands page.
 - **Allow Home Assistant to Run This Saved Command** in each command's editor.
 - For cloud execution, **Also Allow Cloud Connections** for that command and
   the Custom module's cloud permission. Cloud readings still need their own
@@ -557,11 +558,16 @@ Each command starts local-only. Commands saved before these per-command switches
 were added also need explicit permission before HA can run them. Their IDs and
 scripts are kept. Disabling permission makes existing HA buttons unavailable.
 
-**Allow Home Assistant to Send Shell Commands** is a separate permission for
-commands supplied by HA scripts, automations or its UI. It grants much broader
-access to the Windows account. Saved command definitions cannot be edited through
-the command API, but a compromised HA instance could still trigger any allowed
-command. Built-in controls retain their own module permissions.
+**Allow Home Assistant to Run Commands Supplied in YAML** is a separate permission for
+commands supplied by Home Assistant YAML, scripts, automations or its UI. This
+option is marked red because a compromised Home Assistant can send arbitrary
+commands to your PC, running with your Windows user permissions. That includes
+reading or deleting files, starting programs and changing settings. Leave it off
+unless you need it; named commands do not require it.
+
+Saved command definitions cannot be edited through the command API, but a
+compromised Home Assistant instance could still trigger any individually allowed
+saved command. Built-in controls retain their own module permissions.
 
 Names can change without replacing entity IDs. To change an output's type, unit
 or statistics, add a new output so existing HA history keeps its meaning.
@@ -614,7 +620,7 @@ configured. Windows speech is generated locally and does not need an audio URL.
 
 ### PowerShell, CMD and WSL commands
 
-Enable **Allow Home Assistant to Send Shell Commands** under
+Enable **Allow Home Assistant to Run Commands Supplied in YAML** under
 **Commands > Home Assistant Permissions** or **Modules > Windows**.
 In HA use the **WHAT: Run Windows command** action and
 select one PC. Choose Windows PowerShell (`powershell`), separately installed

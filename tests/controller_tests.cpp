@@ -13523,6 +13523,7 @@ private slots:
         QTest::newRow("dumps-without-logging") << false << true << QString("crash") << false << 0 << QByteArray();
         QTest::newRow("text-only") << true << false << QString("crash") << false << 0 << QByteArray();
         QTest::newRow("dump-enabled") << true << true << QString("crash") << true << 0 << QByteArray();
+        QTest::newRow("dedicated-writer-context") << true << true << QString("worker-context") << true << 1 << QByteArray();
         QTest::newRow("transient-partial-copy") << true << true << QString("partial-copy-once") << true << 2 << QByteArray();
         QTest::newRow("persistent-partial-copy") << true << true << QString("partial-copy-always") << false << 3 << QByteArray("0x8007012B");
         QTest::newRow("access-denied") << true << true << QString("denied") << false << 1 << QByteArray("0x80070005");
@@ -13607,6 +13608,11 @@ private slots:
                 memcpy(&exception, bytes.constData() + stream.Location.Rva, sizeof(exception));
                 QCOMPARE(exception.ExceptionRecord.ExceptionCode, ULONG32(EXCEPTION_ACCESS_VIOLATION));
                 QCOMPARE(exception.ExceptionRecord.NumberParameters, ULONG32(2));
+                const auto thread = QRegularExpression("Thread: (\\d+)").match(QString::fromUtf8(report));
+                QVERIFY(thread.hasMatch());
+                QCOMPARE(exception.ThreadId, thread.captured(1).toUInt());
+                QVERIFY(exception.ThreadContext.DataSize >= sizeof(CONTEXT));
+                QVERIFY(quint64(exception.ThreadContext.Rva) + exception.ThreadContext.DataSize <= quint64(bytes.size()));
                 foundException = true;
             }
             QVERIFY(foundException);
@@ -14255,8 +14261,39 @@ private slots:
         auto *commandModule = item("commandsSubmodule");
         QVERIFY(commandModule);
         QTRY_VERIFY(commandModule->isVisible());
-        QVERIFY(QMetaObject::invokeMethod(commandModule, "toggled", Q_ARG(bool, true)));
+        QVERIFY(!commandModule->property("showToggle").toBool());
+        auto *savedPermission = commandModule->findChild<QObject *>("savedCommandPermission");
+        auto *suppliedPermission = commandModule->findChild<QObject *>("suppliedCommandPermission");
+        QVERIFY(savedPermission);
+        QVERIFY(suppliedPermission);
+        local.setControlPermission("shell", false);
+        local.customSources->setControlEnabled(false);
+        QVERIFY(QMetaObject::invokeMethod(savedPermission, "toggled", Q_ARG(bool, true)));
+        QVERIFY(local.customSources->controlEnabled());
+        QVERIFY(local.settings.value("modules/custom/control").toBool());
+        QVERIFY(!local.controlPermissions()["shell"].toBool());
+        QVERIFY(QMetaObject::invokeMethod(suppliedPermission, "toggled", Q_ARG(bool, true)));
         QVERIFY(local.controlPermissions()["shell"].toBool());
+        QVERIFY(local.customSources->controlEnabled());
+        QVERIFY(QMetaObject::invokeMethod(savedPermission, "toggled", Q_ARG(bool, false)));
+        QVERIFY(!local.customSources->controlEnabled());
+        QVERIFY(local.controlPermissions()["shell"].toBool());
+        auto *riskLabel = suppliedPermission->findChild<QObject *>("suppliedCommandPermissionLabel");
+        auto *riskWarning = suppliedPermission->findChild<QObject *>("suppliedCommandPermissionWarning");
+        auto *riskBadge = suppliedPermission->findChild<QObject *>("suppliedCommandPermissionBadge");
+        QVERIFY(riskLabel);
+        QVERIFY(riskWarning);
+        QVERIFY(riskBadge);
+        // Page transitions temporarily disable their contents. Wait until the
+        // actual checkbox is interactive before checking its enabled styling.
+        QTRY_VERIFY(suppliedPermission->property("enabled").toBool());
+        QTRY_VERIFY(suppliedPermission->property("effective").toBool());
+        QCOMPARE(riskLabel->property("color").value<QColor>(), riskBadge->property("foreground").value<QColor>());
+        QCOMPARE(riskWarning->property("color").value<QColor>(), riskLabel->property("color").value<QColor>());
+        const auto warning = riskWarning->property("text").toString();
+        QVERIFY(warning.contains("compromised"));
+        QVERIFY(warning.contains("arbitrary"));
+        QVERIFY(warning.contains("Windows user permissions"));
         local.appendCommandStream("powershell> echo fixture\nfixture\n");
         auto *stream = item("commandStream");
         QVERIFY(stream);
@@ -14265,7 +14302,7 @@ private slots:
             QTest::qWait(250);
             window->grabWindow().save(qEnvironmentVariable("WHAT_COMMANDS_PREVIEW"));
         }
-        QVERIFY(QMetaObject::invokeMethod(commandModule, "toggled", Q_ARG(bool, false)));
+        QVERIFY(QMetaObject::invokeMethod(suppliedPermission, "toggled", Q_ARG(bool, false)));
         QVERIFY(!local.controlPermissions()["shell"].toBool());
         window->hide();
         qInfo("UI stage: finished");

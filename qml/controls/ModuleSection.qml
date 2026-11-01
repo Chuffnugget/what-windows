@@ -24,6 +24,7 @@ Rectangle {
     property string unavailableReason: ""
     signal restrictionDetailsRequested
     property bool active: false
+    property bool showToggle: true
     property bool expanded: false
     function collapseSection() { expanded = false; }
     onExpandedChanged: if (expanded) Accordion.closeSiblings(section)
@@ -157,6 +158,7 @@ Rectangle {
             ToggleSwitch {
                 id: moduleToggle
                 objectName: "submoduleToggle"
+                visible: section.showToggle
 
                 animationDuration: section.animationsEnabled ? section.controlDuration : 0
                 enabled: section.available

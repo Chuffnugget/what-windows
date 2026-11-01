@@ -4,6 +4,7 @@ namespace {
 decltype(&MiniDumpWriteDump) nativeDump = nullptr;
 std::wstring scenario;
 int attempts = 0;
+DWORD faultThread = 0;
 
 BOOL WINAPI controlledDump(HANDLE process, DWORD pid, HANDLE output, MINIDUMP_TYPE type,
                           PMINIDUMP_EXCEPTION_INFORMATION exception,
@@ -12,6 +13,14 @@ BOOL WINAPI controlledDump(HANDLE process, DWORD pid, HANDLE output, MINIDUMP_TY
     ++attempts;
     fprintf(stderr, "Dump attempt %d\n", attempts);
     fflush(stderr);
+    // A real dump still has to succeed. Also reject the original unsafe calling
+    // convention, or accidentally attributing the fault to the writer thread.
+    if (GetCurrentThreadId() == faultThread || !exception || exception->ThreadId != faultThread
+        || !exception->ExceptionPointers || !exception->ExceptionPointers->ContextRecord
+        || exception->ExceptionPointers->ContextRecord->ContextFlags & ~CONTEXT_ALL) {
+        SetLastError(DWORD(HRESULT_FROM_WIN32(ERROR_INVALID_USER_BUFFER)));
+        return FALSE;
+    }
     if (scenario == L"denied") {
         SetLastError(DWORD(E_ACCESSDENIED));
         return FALSE;
@@ -42,6 +51,7 @@ int wmain(int argc, wchar_t **argv) {
     CrashDiagnostics::initialize(argv[1], "WindowsHelper", "fixture", "Dynamic Lighting");
     CrashDiagnostics::appendAt(argv[1], "Dynamic Lighting", "INFO", "Fixture started");
     scenario = argv[2];
+    faultThread = GetCurrentThreadId();
     if (scenario == L"missing-api") {
         CrashDiagnostics::dump = nullptr;
         CrashDiagnostics::dumpLoadError = ERROR_PROC_NOT_FOUND;

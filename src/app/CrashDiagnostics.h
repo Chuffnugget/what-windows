@@ -86,7 +86,7 @@ inline void dumpFailure(HANDLE report, const char *operation, DWORD error) {
     appendAt(folder, component, "ERROR", text);
 }
 
-inline void writeDump(const wchar_t *path, EXCEPTION_POINTERS *exception, HANDLE report) {
+inline void writeDump(const wchar_t *path, EXCEPTION_POINTERS *exception, DWORD faultThread, HANDLE report) {
     if (!dump) {
         dumpFailure(report, "loading MiniDumpWriteDump", dumpLoadError);
         return;
@@ -97,7 +97,7 @@ inline void writeDump(const wchar_t *path, EXCEPTION_POINTERS *exception, HANDLE
         dumpFailure(report, "creating dump file", GetLastError());
         return;
     }
-    MINIDUMP_EXCEPTION_INFORMATION info{GetCurrentThreadId(), exception, FALSE};
+    MINIDUMP_EXCEPTION_INFORMATION info{faultThread, exception, FALSE};
     bool saved = false;
     for (int attempt = 0; attempt < 3; ++attempt) {
         saved = dump(GetCurrentProcess(), GetCurrentProcessId(), output, MiniDumpNormal,
@@ -128,6 +128,62 @@ inline void writeDump(const wchar_t *path, EXCEPTION_POINTERS *exception, HANDLE
     } else if (!DeleteFileW(path)) {
         dumpFailure(report, "removing incomplete dump", GetLastError());
     }
+}
+
+// Keep the faulting thread parked, as MiniDumpWriteDump recommends for in-process
+// capture, instead of making DbgHelp walk the stack it is currently executing on.
+// The request owns a fixed-size context, so it must not advertise extended XSTATE
+// storage appended to the original OS context. MiniDumpNormal needs neither that
+// storage nor the exception-dispatch flags outside CONTEXT_ALL.
+struct DumpRequest {
+    wchar_t path[2240]{};
+    EXCEPTION_RECORD record{};
+    CONTEXT context{};
+    EXCEPTION_POINTERS exception{};
+    DWORD faultThread = 0;
+    HANDLE report = INVALID_HANDLE_VALUE;
+};
+inline DumpRequest dumpRequest;
+
+inline DWORD WINAPI dumpWorker(void *) {
+    writeDump(dumpRequest.path, &dumpRequest.exception, dumpRequest.faultThread, dumpRequest.report);
+    if (dumpRequest.report != INVALID_HANDLE_VALUE)
+        CloseHandle(dumpRequest.report);
+    return 0;
+}
+
+inline void captureDump(const wchar_t *path, EXCEPTION_POINTERS *exception, HANDLE report) {
+    // The crash guard allows only one writer. Static storage and a duplicate
+    // report handle remain valid even if the worker exceeds the bounded wait.
+    wcscpy_s(dumpRequest.path, path);
+    dumpRequest.record = *exception->ExceptionRecord;
+    dumpRequest.record.ExceptionRecord = nullptr;
+    if (exception->ContextRecord) {
+        dumpRequest.context = *exception->ContextRecord;
+        dumpRequest.context.ContextFlags &= CONTEXT_ALL;
+    }
+    dumpRequest.exception = {&dumpRequest.record, exception->ContextRecord ? &dumpRequest.context : nullptr};
+    dumpRequest.faultThread = GetCurrentThreadId();
+    dumpRequest.report = INVALID_HANDLE_VALUE;
+    if (report != INVALID_HANDLE_VALUE
+        && !DuplicateHandle(GetCurrentProcess(), report, GetCurrentProcess(), &dumpRequest.report,
+                            0, FALSE, DUPLICATE_SAME_ACCESS)) {
+        dumpRequest.report = INVALID_HANDLE_VALUE;
+        dumpFailure(report, "duplicating dump report handle", GetLastError());
+    }
+    HANDLE worker = CreateThread(nullptr, 0, dumpWorker, nullptr, 0, nullptr);
+    if (!worker) {
+        const DWORD error = GetLastError();
+        if (dumpRequest.report != INVALID_HANDLE_VALUE)
+            CloseHandle(dumpRequest.report);
+        dumpFailure(report, "starting dump worker", error);
+        return;
+    }
+    const DWORD wait = WaitForSingleObject(worker, 10000);
+    const DWORD error = wait == WAIT_FAILED ? GetLastError() : ERROR_TIMEOUT;
+    CloseHandle(worker);
+    if (wait != WAIT_OBJECT_0)
+        dumpFailure(report, "waiting for dump worker", error);
 }
 
 inline LONG WINAPI crash(EXCEPTION_POINTERS *exception) {
@@ -182,7 +238,7 @@ inline LONG WINAPI crash(EXCEPTION_POINTERS *exception) {
         appendAt(folder, component, "ERROR", "Unhandled exception; see crash report");
         if (enabled(folder, L"dumps.enabled")) {
             swprintf_s(path, L"%s.dmp", stem);
-            writeDump(path, exception, file);
+            captureDump(path, exception, file);
         }
         if (file != INVALID_HANDLE_VALUE) {
             FlushFileBuffers(file);

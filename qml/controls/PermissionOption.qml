@@ -30,12 +30,14 @@ ColumnLayout {
             ToolTip.text: permission.help
             onClicked: permission.toggled(checked)
             contentItem: Text {
+                objectName: permission.objectName + "Label"
                 text: toggle.text
                 textFormat: Text.PlainText
                 leftPadding: 30
                 verticalAlignment: Text.AlignVCenter
                 wrapMode: Text.WordWrap
-                color: toggle.enabled ? Theme.ink : Theme.muted
+                color: !toggle.enabled ? Theme.muted
+                    : permission.access === PermissionBadge.Shell ? Theme.error : Theme.ink
                 font.pixelSize: Theme.fontBody
             }
         }
@@ -49,6 +51,7 @@ ColumnLayout {
     }
 
     HintLabel {
+        objectName: permission.objectName + "Warning"
         visible: permission.description.length > 0
         Layout.fillWidth: true
         Layout.leftMargin: 28
