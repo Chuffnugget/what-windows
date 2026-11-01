@@ -14,6 +14,7 @@ $global:whatUploadFixtureAssets = @(Get-ChildItem -LiteralPath $OutputDirectory 
         digest = 'sha256:' + (Get-FileHash -LiteralPath $_.FullName).Hash.ToLowerInvariant()
     }
 })
+$global:whatUploadFixtureTag = 'v0.0.1-beta.5'
 # Replace the CLI boundary before invoking the real publication script.
 # These tests make no network requests and do not modify GitHub releases.
 function global:gh {
@@ -30,7 +31,7 @@ function global:gh {
             return
         }
         $draft = $global:whatUploadFixtureCase -ne 'published'
-        $tag = 'v0.0.1-beta.5'
+        $tag = $global:whatUploadFixtureTag
         if ($global:whatUploadFixtureUploaded) {
             if ($global:whatUploadFixtureCase -eq 'published-during-upload') { $draft = $false }
             if ($global:whatUploadFixtureCase -eq 'tag-changed') { $tag = 'v0.0.1-beta.6' }
@@ -60,7 +61,7 @@ function global:gh {
             # Include another release to ensure the check matches the exact tag.
             @{tagName='v0.0.1-beta.4'; isDraft=$false} | ConvertTo-Json -Compress
             if ($global:whatUploadFixtureCase -ne 'new') {
-                @{tagName='v0.0.1-beta.5'; isDraft=($global:whatUploadFixtureCase -ne 'published')} | ConvertTo-Json -Compress
+                @{tagName=$global:whatUploadFixtureTag; isDraft=($global:whatUploadFixtureCase -ne 'published')} | ConvertTo-Json -Compress
             }
             return
         }
@@ -73,6 +74,12 @@ function global:gh {
             throw "Unexpected fixture API path: $($call[1])"
         }
         $assets = @($global:whatUploadFixtureAssets | ForEach-Object { $_.Clone() })
+        if ($global:whatUploadFixtureCase -eq 'alias-missing') {
+            $assets = @($assets | Where-Object name -ne 'WHAT-Windows-arm64-Setup.exe')
+        }
+        if ($global:whatUploadFixtureCase -eq 'alias-digest-mismatch') {
+            ($assets | Where-Object name -eq 'WHAT-Windows-x64-Setup.exe').digest = 'sha256:wrong'
+        }
         if ($global:whatUploadFixtureCase -eq 'digest-mismatch') { $assets[0].digest = 'sha256:wrong' }
         if ($global:whatUploadFixtureCase -eq 'missing') { $assets = $assets[1..($assets.Count - 1)] }
         if ($global:whatUploadFixtureCase -eq 'extra') {
@@ -112,6 +119,10 @@ try {
         $published = @($global:whatUploadFixtureCalls | Where-Object { $_ -like 'release edit*--draft=false*' }).Count
         if ($case -in @('new', 'draft')) {
             if ($failure -or $published -ne 1) { throw "Complete fixture did not publish: $case. $failure" }
+            if (@($global:whatUploadFixtureCalls | Where-Object { $_ -like 'release edit*--prerelease --latest=false' }).Count -ne 1 -or
+                @($global:whatUploadFixtureCalls | Where-Object { $_ -like 'release upload*WHAT-Windows-*-Setup.exe*' }).Count) {
+                throw 'Beta releases must not replace the stable downloads.'
+            }
         } elseif (!$failure -or $published -ne 0) {
             throw "Unsafe fixture was published: $case"
         }
@@ -142,7 +153,58 @@ try {
     catch { $rejected = $_.Exception.Message -match 'architecture differs' }
     if (!$rejected -or $global:whatUploadFixtureCalls.Count) { throw 'Mismatched ARM64 manifest reached GitHub.' }
     Write-Host 'PASS: combined architectures and mismatched manifest rejection'
+
+    # Stable releases publish two byte-identical installer aliases for the README.
+    # Reuse the directory across attempts to exercise retries after a failed upload.
+    $stableDirectory = Join-Path $OutputDirectory 'stable'
+    New-Item -ItemType Directory -Path $stableDirectory -Force | Out-Null
+    foreach ($architecture in @('x64', 'arm64')) {
+        foreach ($ending in @('Setup.exe', 'UpdatePayload.msix', 'Portable.zip')) {
+            Set-Content (Join-Path $stableDirectory "WHAT-0.0.1-Windows-$architecture-$ending") "Stable $architecture $ending fixture"
+        }
+        $manifestName = if ($architecture -eq 'x64') { 'update.json' } else { 'update-arm64.json' }
+        @{ architecture=$architecture; version='0.0.1' } | ConvertTo-Json | Set-Content (Join-Path $stableDirectory $manifestName)
+    }
+    Set-Content (Join-Path $stableDirectory 'WHAT-0.0.1-Source.zip') 'Stable source fixture'
+    $global:whatUploadFixtureAssets = @(Get-ChildItem -LiteralPath $stableDirectory -File | ForEach-Object {
+        @{ name=$_.Name; size=$_.Length; state='uploaded'; digest=('sha256:' + (Get-FileHash -LiteralPath $_.FullName).Hash.ToLowerInvariant()) }
+    })
+    foreach ($architecture in @('x64', 'arm64')) {
+        $alias = ($global:whatUploadFixtureAssets | Where-Object name -eq "WHAT-0.0.1-Windows-$architecture-Setup.exe").Clone()
+        $alias.name = "WHAT-Windows-$architecture-Setup.exe"
+        $global:whatUploadFixtureAssets += $alias
+    }
+    $global:whatUploadFixtureTag = 'v0.0.1'
+    foreach ($case in @('new', 'draft', 'alias-missing', 'alias-digest-mismatch', 'upload-failed', 'published', 'draft')) {
+        $global:whatUploadFixtureCase = $case
+        $global:whatUploadFixtureCalls.Clear()
+        $global:whatUploadFixtureCreated = $false
+        $global:whatUploadFixtureUploaded = $false
+        $failure = $null
+        try {
+            & "$root/scripts/Publish-Release.ps1" -ArtifactDirectory $stableDirectory -Tag 'v0.0.1' -Repository 'fixture/what'
+        } catch { $failure = $_ }
+        $published = @($global:whatUploadFixtureCalls | Where-Object { $_ -like 'release edit*--draft=false*' }).Count
+        if ($case -in @('new', 'draft')) {
+            if ($failure -or $published -ne 1 -or
+                @($global:whatUploadFixtureCalls | Where-Object { $_ -like 'release edit*--prerelease=false --latest' }).Count -ne 1) {
+                throw "Stable release did not publish as latest: $case. $failure"
+            }
+        } elseif (!$failure -or $published) { throw "Invalid stable release was published: $case" }
+        foreach ($architecture in @('x64', 'arm64')) {
+            $original = Join-Path $stableDirectory "WHAT-0.0.1-Windows-$architecture-Setup.exe"
+            $alias = Join-Path $stableDirectory "latest-downloads/WHAT-Windows-$architecture-Setup.exe"
+            if ((Get-FileHash -LiteralPath $original).Hash -ne (Get-FileHash -LiteralPath $alias).Hash) {
+                throw "Stable installer alias differs from the signed build: $architecture"
+            }
+            if ($case -in @('new', 'draft') -and
+                @($global:whatUploadFixtureCalls | Where-Object { $_ -like "release upload*WHAT-Windows-$architecture-Setup.exe*" }).Count -ne 1) {
+                throw "Stable installer alias was not uploaded: $architecture"
+            }
+        }
+        Write-Host "PASS: stable installer links $case"
+    }
 } finally {
     Remove-Item Function:\gh
-    Remove-Variable whatUploadFixtureAssets,whatUploadFixtureCase,whatUploadFixtureCalls,whatUploadFixtureCreated,whatUploadFixtureUploaded -Scope Global -ErrorAction SilentlyContinue
+    Remove-Variable whatUploadFixtureTag,whatUploadFixtureAssets,whatUploadFixtureCase,whatUploadFixtureCalls,whatUploadFixtureCreated,whatUploadFixtureUploaded -Scope Global -ErrorAction SilentlyContinue
 }

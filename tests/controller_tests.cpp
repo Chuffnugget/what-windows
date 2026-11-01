@@ -72,6 +72,7 @@
 #include <QWheelEvent>
 #include <QHoverEvent>
 #include <stdexcept>
+#include <optional>
 
 class ReleaseUrlCapture : public QObject {
     Q_OBJECT
@@ -127,6 +128,28 @@ class ControllerTests : public QObject {
             write();
             return QApplication::clipboard()->ownsClipboard();
         }, 3000);
+    }
+
+    // Collection includes audio COM and other native calls. Match the app's
+    // worker-thread execution instead of blocking the QML test's GUI apartment.
+    // The work owns the collector if an OS call outlives the bounded test wait.
+    static std::optional<QJsonArray> collectWindowsForTest(
+        const std::shared_ptr<WindowsCollector> &collector, const QJsonObject &options) {
+        std::optional<QJsonArray> result;
+        bool failed = false;
+        BackgroundWorker worker{"Windows collector test"};
+        worker.onStatus = [&](const QString &error) {
+            if (!error.isEmpty()) {
+                qInfo().noquote() << "Windows collector test failed:" << error;
+                failed = true;
+            }
+        };
+        worker.submit([collector, options] { return collector->collect(options); },
+                      [&](QJsonArray rows) { result = std::move(rows); });
+        qInfo("Windows collector test: waiting for background collection (15 s limit)");
+        const bool completed = QTest::qWaitFor([&] { return result.has_value() || failed; }, 15000);
+        qInfo("Windows collector test: %s", !completed ? "timed out" : failed ? "failed" : "completed");
+        return result;
     }
 
     static QQuickItem *visualItem(QQuickItem *parent, const QString &name) {
@@ -12900,10 +12923,11 @@ private slots:
         QVERIFY(!local.moduleIssues().contains("windows"));
         QVERIFY(local.readingBrowserEnabled(ssid));
 
-        WindowsCollector collector;
-        const auto readings = collector.collect({{"wifi", false}, {"_fast_only", true}});
-        QVERIFY(collector.wifiIssue().isEmpty());
-        for (const auto &value : readings) {
+        auto collector = std::make_shared<WindowsCollector>();
+        const auto readings = collectWindowsForTest(collector, {{"wifi", false}, {"_fast_only", true}});
+        QVERIFY2(readings.has_value(), "Windows collection failed or exceeded 15 seconds");
+        QVERIFY(collector->wifiIssue().isEmpty());
+        for (const auto &value : *readings) {
             const auto id = value.toObject()["id"].toString();
             QVERIFY(!id.endsWith("_ssid") && !id.endsWith("_wifi_signal"));
         }
@@ -12915,13 +12939,18 @@ private slots:
     }
 
     void windowsNetworkAddressesUseOneScanPerPoll() {
-        WindowsCollector collector;
-        const auto liveInterfaces = QNetworkInterface::allInterfaces();
-        int scans = 0;
-        bool supplyAddresses = true;
-        collector.networkInterfaces = [&] {
-            ++scans;
-            return supplyAddresses ? liveInterfaces : QList<QNetworkInterface>{};
+        auto collector = std::make_shared<WindowsCollector>();
+        struct AddressFixture {
+            QList<QNetworkInterface> interfaces;
+            int scans = 0;
+            bool supplyAddresses = true;
+        };
+        // Keep injected state alive too if a native call exceeds the test deadline.
+        auto addresses = std::make_shared<AddressFixture>();
+        collector->networkInterfaces = [addresses] {
+            if (++addresses->scans == 1)
+                addresses->interfaces = QNetworkInterface::allInterfaces();
+            return addresses->supplyAddresses ? addresses->interfaces : QList<QNetworkInterface>{};
         };
         const QJsonObject options{{"wifi", false}, {"_fast_only", true}};
         const auto ipRows = [](const QJsonArray &readings) {
@@ -12935,24 +12964,30 @@ private slots:
             return result;
         };
 
-        const auto first = ipRows(collector.collect(options));
-        QCOMPARE(scans, 1);
+        auto collected = collectWindowsForTest(collector, options);
+        QVERIFY2(collected.has_value(), "Windows collection failed or exceeded 15 seconds");
+        const auto first = ipRows(*collected);
+        QCOMPARE(addresses->scans, 1);
         if (first.isEmpty())
             QSKIP("No eligible Windows network adapters available");
         // Simulate address removal, then restoration. The index must be fresh
         // on every poll and keep the existing entity IDs and text semantics.
-        supplyAddresses = false;
-        const auto cleared = ipRows(collector.collect(options));
-        QCOMPARE(scans, 2);
+        addresses->supplyAddresses = false;
+        collected = collectWindowsForTest(collector, options);
+        QVERIFY2(collected.has_value(), "Windows collection failed or exceeded 15 seconds");
+        const auto cleared = ipRows(*collected);
+        QCOMPARE(addresses->scans, 2);
         QCOMPARE(cleared.keys(), first.keys());
         for (const auto &reading : cleared) {
             QCOMPARE(reading["kind"].toString(), QString("text"));
             QVERIFY(reading["available"].toBool());
             QCOMPARE(reading["value"].toString(), QString());
         }
-        supplyAddresses = true;
-        QCOMPARE(ipRows(collector.collect(options)), first);
-        QCOMPARE(scans, 3);
+        addresses->supplyAddresses = true;
+        collected = collectWindowsForTest(collector, options);
+        QVERIFY2(collected.has_value(), "Windows collection failed or exceeded 15 seconds");
+        QCOMPARE(ipRows(*collected), first);
+        QCOMPARE(addresses->scans, 3);
     }
 
     void windowsWithoutHwinfo() {
@@ -12983,11 +13018,12 @@ private slots:
         c->mergeReadings("windows", {row(connected, true, "binary"), row(capacity, 23456)});
         QCOMPARE(find(capacity)["value"].toInt(), 23456);
         QVERIFY(c->selected.contains(capacity));
-        WindowsCollector fresh;
-        fresh.restoreVolumes(QJsonArray{row(connected, true, "binary")});
-        const auto rows = fresh.collect({});
+        auto fresh = std::make_shared<WindowsCollector>();
+        fresh->restoreVolumes(QJsonArray{row(connected, true, "binary")});
+        const auto rows = collectWindowsForTest(fresh, {});
+        QVERIFY2(rows.has_value(), "Windows collection failed or exceeded 15 seconds");
         bool found = false;
-        for (auto value : rows)
+        for (auto value : *rows)
             if (value.toObject()["id"] == connected) {
                 found = true;
                 QVERIFY(!value.toObject()["value"].toBool());

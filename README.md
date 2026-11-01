@@ -46,10 +46,20 @@ The companion integration requires Home Assistant 2026.9+.
 
 ## Get started
 
-1. Download the Setup EXE from [Windows releases](https://github.com/Chuffnugget/what-windows/releases),
-   install it and open WHAT. The installed edition supports notification collection
-   and automatic update installation. For portable use, extract the complete
-   portable ZIP and run `WHAT.exe`.
+Download the latest stable Windows installer for your PC:
+
+| PC type | Installer |
+| --- | --- |
+| Intel / AMD (x64) | [Download x64 Setup EXE](https://github.com/Chuffnugget/what-windows/releases/latest/download/WHAT-Windows-x64-Setup.exe) |
+| Windows on ARM (ARM64) | [Download ARM64 Setup EXE](https://github.com/Chuffnugget/what-windows/releases/latest/download/WHAT-Windows-arm64-Setup.exe) |
+
+These links follow stable releases only. Until the first stable release is published,
+use the [beta installers on Windows releases](https://github.com/Chuffnugget/what-windows/releases).
+
+1. Run the installer and open WHAT. The installed edition supports notification
+   collection and automatic update installation. For portable use, download the
+   matching portable ZIP from [Windows releases](https://github.com/Chuffnugget/what-windows/releases),
+   extract it completely and run `WHAT.exe`.
 2. Install the [Home Assistant integration](https://github.com/Chuffnugget/what-integration#readme).
 3. In WHAT, open **Overview > Pair This PC** or **Settings > Home Assistant
    Installations**. Add or select an installation, choose **WHAT API (Recommended)**

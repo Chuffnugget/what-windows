@@ -1,5 +1,16 @@
 # Building and publishing WHAT
 
+## Stable installer links
+
+Both READMEs link directly to the latest stable installers using GitHub's
+`releases/latest/download/WHAT-Windows-x64-Setup.exe` and
+`releases/latest/download/WHAT-Windows-arm64-Setup.exe` URLs.
+`Publish-Release.ps1` adds these fixed-name copies to stable releases, alongside
+the versioned assets, and verifies their sizes and SHA-256 hashes before publication.
+They are byte-identical copies of the built installers, preserving their contents
+and any signatures. Beta releases do not update these links. The links become
+available when the first stable release is published with the corresponding assets.
+
 ## Local build
 
 For development, run `scripts/Build-Release.cmd` from the Windows repository.

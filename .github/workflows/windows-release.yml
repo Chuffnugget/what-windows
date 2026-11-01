@@ -201,6 +201,8 @@ jobs:
         continue-on-error: true
         with:
           name: windows-build-logs
-          path: ${{ env.PROJECT_DIR }}/build/logs/**/*.txt
+          path: |
+            ${{ env.PROJECT_DIR }}/build/logs/**/*.txt
+            ${{ env.PROJECT_DIR }}/build/staging/**/validation/**/*.txt
           if-no-files-found: ignore
           retention-days: 7

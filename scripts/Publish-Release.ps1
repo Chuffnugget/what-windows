@@ -53,6 +53,20 @@ function Invoke-ReleaseGh([string[]]$Arguments) {
 }
 # A rerun can resume a draft. Never overwrite a published release.
 $existing = Get-ReleaseTarget
+# Native /releases/latest/download links need filenames that survive version bumps.
+# Keep the versioned assets for existing consumers and verify these identical
+# stable-only copies alongside them before publishing the draft.
+if ($Tag -notlike '*-beta.*') {
+    $downloadDirectory = Join-Path $ArtifactDirectory 'latest-downloads'
+    New-Item -ItemType Directory -Path $downloadDirectory -Force | Out-Null
+    foreach ($manifest in $manifests) {
+        $architecture = if ($manifest.Name -eq 'update.json') { 'x64' } else { 'arm64' }
+        $installer = Join-Path $ArtifactDirectory "WHAT-$($Tag.Substring(1))-Windows-$architecture-Setup.exe"
+        $download = Join-Path $downloadDirectory "WHAT-Windows-$architecture-Setup.exe"
+        Copy-Item -LiteralPath $installer -Destination $download -Force
+        $files += Get-Item -LiteralPath $download
+    }
+}
 if (!$existing) {
     Invoke-ReleaseGh @('release', 'create', $Tag, '--repo', $Repository, '--verify-tag', '--draft', '--title', $Tag,
         '--notes', 'For Windows installation, download and run the Setup.exe asset. UpdatePayload.msix and update.json are for the in-app updater.', '--generate-notes') | Out-Host
