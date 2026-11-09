@@ -199,7 +199,7 @@ ColumnLayout {
         OptionCheckBox {
             text: "Snap Picture-in-Picture to Screen Edges"
             checked: options.draft.pipSnap === true
-            ToolTip.text: "After moving or resizing, snap within 16 pixels of the monitor's usable edge. The Windows taskbar remains clear."
+            ToolTip.text: "Drag PiP near a screen edge or the taskbar to see an outline of its landing position, then release to snap into place. The pointer selects the screen when moving between monitors. Corners snap to both edges. Works with the rolled-up title bar too; drag away to undock. Keeps the taskbar clear and remembers the position."
             onClicked: options.update("pipSnap", checked)
         }
 

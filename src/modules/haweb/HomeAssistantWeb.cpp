@@ -11,11 +11,33 @@
 #include <QTimer>
 #include <QUrl>
 #include <QtMath>
+#include <commctrl.h>
 
 namespace {
 constexpr int overlayHotkeyId = 0x5748;
 constexpr int pipHotkeyId = 0x5749;
 constexpr int pipTitleHeight = 44; // 28-pixel toolbar plus the two 8-pixel resize margins.
+
+// Qt 6.11 excludes sent WM_MOVING/WM_SIZING messages from application-wide
+// native filters. Observe them on this HWND, before Qt's window procedure.
+// Other messages still use the global filter, so each docking event runs once.
+LRESULT CALLBACK pipWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                   UINT_PTR hookId, DWORD_PTR context) {
+    if (message == WM_MOVING || message == WM_SIZING || message == WM_KEYDOWN) {
+        auto *web = reinterpret_cast<HomeAssistantWeb *>(context);
+        MSG event{};
+        event.hwnd = hwnd;
+        event.message = message;
+        event.wParam = wParam;
+        event.lParam = lParam;
+        qintptr result = 0;
+        if (web->nativeEventFilter("what_pip_window", &event, &result))
+            return LRESULT(result);
+    } else if (message == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, pipWindowProcedure, hookId);
+    }
+    return DefSubclassProc(hwnd, message, wParam, lParam);
+}
 
 bool hotkeyParts(const QString &text, UINT &modifiers, UINT &key) {
     if (text.isEmpty()) {
@@ -129,6 +151,8 @@ void HomeAssistantWeb::shutdown() {
     if (d->shuttingDown)
         return;
     d->shuttingDown = true;
+    setPipWindowHook(false);
+    clearPipDockPreview();
     savePictureInPicture();
     d->desktopPlacement.detach();
     stopBrowser();
@@ -429,13 +453,17 @@ bool HomeAssistantWeb::configure(const QString &address, const QString &mode, in
 }
 
 void HomeAssistantWeb::setOverlayWindow(QWindow *window) {
+    setPipWindowHook(false);
+    clearPipDockPreview();
     if (d->overlay) {
         savePictureInPicture();
         d->overlay->removeEventFilter(this);
     }
     d->overlay = window;
-    if (window)
+    if (window) {
         window->installEventFilter(this);
+        setPipWindowHook(true);
+    }
 }
 
 void HomeAssistantWeb::setDesktopWindow(QWindow *window) {
@@ -455,19 +483,6 @@ QRect HomeAssistantWeb::fitPictureInPicture(QRect bounds, const QRect &workArea)
     bounds.setHeight(qMin(workArea.height(), qMax(260, bounds.height())));
     bounds.moveLeft(qBound(workArea.left(), bounds.x(), workArea.right() - bounds.width() + 1));
     bounds.moveTop(qBound(workArea.top(), bounds.y(), workArea.bottom() - bounds.height() + 1));
-    return bounds;
-}
-
-QRect HomeAssistantWeb::snapPictureInPicture(QRect bounds, const QRect &workArea, int distance) {
-    bounds = fitPictureInPicture(bounds, workArea);
-    if (qAbs(bounds.left() - workArea.left()) <= distance)
-        bounds.moveLeft(workArea.left());
-    else if (qAbs(bounds.right() - workArea.right()) <= distance)
-        bounds.moveRight(workArea.right());
-    if (qAbs(bounds.top() - workArea.top()) <= distance)
-        bounds.moveTop(workArea.top());
-    else if (qAbs(bounds.bottom() - workArea.bottom()) <= distance)
-        bounds.moveBottom(workArea.bottom());
     return bounds;
 }
 
@@ -539,6 +554,7 @@ void HomeAssistantWeb::applyPipWindowScale() {
 }
 
 void HomeAssistantWeb::updateWindowGeometry() {
+    clearPipDockPreview();
     emit monitorsChanged();
     if (d->desktopActive)
         syncDesktop();
@@ -615,6 +631,7 @@ void HomeAssistantWeb::togglePictureInPicture() {
 }
 
 void HomeAssistantWeb::togglePipMinimised() {
+    clearPipDockPreview();
     if (!d->overlayVisible || d->overlayMode != "pip" || !d->overlay)
         return;
     auto bounds = d->overlay->geometry();
@@ -649,6 +666,7 @@ void HomeAssistantWeb::togglePipMinimised() {
 }
 
 void HomeAssistantWeb::showOverlay(const QString &mode) {
+    clearPipDockPreview();
     if (d->shuttingDown || (mode != "pip" && mode != "fullscreen"))
         return;
     if (!d->active || d->address.isEmpty() || !d->overlay) {
@@ -712,6 +730,7 @@ void HomeAssistantWeb::showOverlay(const QString &mode) {
 }
 
 void HomeAssistantWeb::hideOverlay() {
+    clearPipDockPreview();
     if (!d->overlayVisible)
         return;
     savePictureInPicture();
@@ -764,17 +783,119 @@ void HomeAssistantWeb::openView(const QString &mode) {
     }
 }
 
+void HomeAssistantWeb::setPipWindowHook(bool attach) {
+    const auto hwnd = attach && !d->shuttingDown && d->overlay && d->overlay->handle()
+        ? reinterpret_cast<HWND>(d->overlay->winId()) : nullptr;
+    if (hwnd == d->pipHookWindow)
+        return;
+    const auto id = reinterpret_cast<UINT_PTR>(this);
+    if (d->pipHookWindow)
+        RemoveWindowSubclass(d->pipHookWindow, pipWindowProcedure, id);
+    d->pipHookWindow = nullptr;
+    if (hwnd) {
+        if (SetWindowSubclass(hwnd, pipWindowProcedure, id, reinterpret_cast<DWORD_PTR>(this)))
+            d->pipHookWindow = hwnd;
+        else
+            emit diagnostic("PiP docking: could not attach to the native overlay window");
+    }
+}
+
+void HomeAssistantWeb::clearPipDockPreview() {
+    d->pipDockPreview.hide();
+    d->pipDragBounds = {};
+    d->pipDockWorkArea = {};
+    d->pipDockTarget = {};
+    d->pipSizing = false;
+}
+
 bool HomeAssistantWeb::nativeEventFilter(const QByteArray &, void *raw, qintptr *result) {
+    if (d->shuttingDown)
+        return false;
     const auto *message = static_cast<MSG *>(raw);
-    if ((message->message == WM_EXITSIZEMOVE || message->message == WM_SIZING) && d->overlayVisible &&
-        d->overlayMode == "pip" && d->overlay && d->overlay->handle() &&
+    if (d->overlayVisible && d->overlayMode == "pip" && d->overlay && d->overlay->handle() &&
         message->hwnd == reinterpret_cast<HWND>(d->overlay->winId())) {
-        if (message->message == WM_EXITSIZEMOVE && !d->pipMinimised && d->options["pipSnap"].toBool()) {
-            const auto screen = d->overlay->screen();
-            if (screen)
-                d->overlay->setGeometry(
-                    snapPictureInPicture(d->overlay->geometry(), screen->availableGeometry()));
+        const auto rectangle = [](const RECT &r) {
+            return QRect(r.left, r.top, r.right - r.left, r.bottom - r.top);
+        };
+        struct DragScreen {
+            QRect work;
+            int dpi = 96;
+            std::optional<QPoint> pointer;
+        };
+        const auto dragScreen = [&](const RECT &r, bool followPointer) {
+            DragScreen screen;
+            auto monitor = MonitorFromRect(&r, MONITOR_DEFAULTTONEAREST);
+            POINT cursor{};
+            const auto primaryButton = GetSystemMetrics(SM_SWAPBUTTON) ? VK_RBUTTON : VK_LBUTTON;
+            // System moves can also be driven by the keyboard. Only consult the
+            // cursor during an actual mouse drag, never for keyboard positioning.
+            if (followPointer && (GetKeyState(primaryButton) & 0x8000) && GetCursorPos(&cursor)) {
+                monitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
+                screen.pointer = QPoint(cursor.x, cursor.y);
+            }
+            MONITORINFOEXW info{};
+            info.cbSize = sizeof(info);
+            if (GetMonitorInfoW(monitor, &info)) {
+                screen.work = rectangle(info.rcWork);
+                screen.dpi = int(GetDpiForWindow(message->hwnd));
+                // Use the destination monitor's scale before Windows has moved
+                // the HWND across a mixed-DPI boundary.
+                for (auto *qtScreen : QGuiApplication::screens()) {
+                    if (qtScreen->name() == QString::fromWCharArray(info.szDevice)) {
+                        screen.dpi = qRound(qtScreen->devicePixelRatio() * 96);
+                        break;
+                    }
+                }
+            }
+            if (!screen.dpi)
+                screen.dpi = 96;
+            return screen;
+        };
+        if (message->message == WM_ENTERSIZEMOVE || message->message == WM_CANCELMODE ||
+            (message->message == WM_KEYDOWN && message->wParam == VK_ESCAPE)) {
+            clearPipDockPreview();
+        } else if (message->message == WM_MOVING && message->lParam) {
+            if (!d->options["pipSnap"].toBool()) {
+                clearPipDockPreview();
+            } else {
+                const auto &native = *reinterpret_cast<const RECT *>(message->lParam);
+                d->pipDragBounds = rectangle(native);
+                d->pipSizing = false;
+                const auto screen = dragScreen(native, true);
+                const auto previous = d->pipDockWorkArea == screen.work ? d->pipDockTarget.edges : Qt::Edges{};
+                d->pipDockWorkArea = screen.work;
+                d->pipDockTarget = pipDockTarget(d->pipDragBounds, screen.work, MulDiv(32, screen.dpi, 96),
+                                                 screen.pointer, previous);
+                auto color = d->overlay->property("dockAccent").value<QColor>();
+                if (!color.isValid())
+                    color = QColor("#65c9f5");
+                d->pipDockPreview.show(d->pipDockTarget.bounds, d->pipDockTarget.edges,
+                                       MulDiv(2, screen.dpi, 96), color);
+            }
+        } else if (message->message == WM_EXITSIZEMOVE) {
+            RECT native{};
+            if (d->options["pipSnap"].toBool() && GetWindowRect(message->hwnd, &native)) {
+                const auto bounds = rectangle(native);
+                // Escape restores the original rectangle. Do not apply the
+                // stale preview, or override a different rectangle from Windows.
+                if (bounds == d->pipDragBounds || d->pipSizing) {
+                    // Commit the position shown by the preview. Re-selecting
+                    // a monitor here can choose the old monitor under most of PiP.
+                    auto target = d->pipDockTarget;
+                    if (d->pipSizing) {
+                        const auto screen = dragScreen(native, false);
+                        target = pipDockTarget(bounds, screen.work, MulDiv(32, screen.dpi, 96));
+                    }
+                    if (target.edges && target.bounds != bounds)
+                        SetWindowPos(message->hwnd, nullptr, target.bounds.x(), target.bounds.y(), 0, 0,
+                                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                }
+            }
+            clearPipDockPreview();
+            savePictureInPicture();
         } else if (message->message == WM_SIZING && !d->pipMinimised) {
+            clearPipDockPreview();
+            d->pipSizing = true;
             const auto ratioName = d->options["pipAspectRatio"].toString();
             const double ratio = ratioName == "16:9"  ? 16.0 / 9
                                  : ratioName == "4:3" ? 4.0 / 3
@@ -826,6 +947,17 @@ bool HomeAssistantWeb::nativeEventFilter(const QByteArray &, void *raw, qintptr 
 bool HomeAssistantWeb::eventFilter(QObject *object, QEvent *event) {
     if (d->shuttingDown)
         return QObject::eventFilter(object, event);
+    if (object == d->overlay && event->type() == QEvent::PlatformSurface) {
+        const auto *surface = static_cast<QPlatformSurfaceEvent *>(event);
+        const bool created = surface->surfaceEventType() == QPlatformSurfaceEvent::SurfaceCreated;
+        // QML can replace the HWND. Never leave a callback pointing at an old
+        // controller, and reattach before dragging a newly created surface.
+        if (!created)
+            clearPipDockPreview();
+        setPipWindowHook(created);
+    }
+    if (object == d->overlay && (event->type() == QEvent::Hide || event->type() == QEvent::Close))
+        clearPipDockPreview();
     if (object == d->overlay && d->overlayVisible && d->overlayMode == "pip" &&
         (event->type() == QEvent::Resize || event->type() == QEvent::Move))
         d->saveGeometry.start();

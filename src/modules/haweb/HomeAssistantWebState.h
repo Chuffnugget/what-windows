@@ -2,6 +2,7 @@
 #include "HomeAssistantWeb.h"
 #include "DesktopPlacement.h"
 #include "WebOptions.h"
+#include "PipDocking.h"
 #include <windows.h>
 #include <wrl.h>
 #include <WebView2.h>
@@ -44,6 +45,12 @@ struct HomeAssistantWeb::State {
     bool pipRegistered = false;
     QString pipShortcutError;
     bool pipMinimised = false;
+    PipDockPreview pipDockPreview;
+    HWND pipHookWindow = nullptr;
+    QRect pipDragBounds;
+    QRect pipDockWorkArea;
+    PipDockTarget pipDockTarget;
+    bool pipSizing = false;
     QRect pipRestoreBounds;
     QPoint pipDockedPosition;
     int pipRestoreMaximumHeight = 0;

@@ -5,8 +5,7 @@ project(
     LANGUAGES C CXX RC
 )
 # Leave empty for stable releases; use beta.1, beta.2, etc. for prereleases.
-#set(WHAT_PRERELEASE "")
-set(WHAT_PRERELEASE "beta.8")
+set(WHAT_PRERELEASE "")
 if(WHAT_PRERELEASE AND NOT WHAT_PRERELEASE MATCHES "^beta\\.[1-9][0-9]*$")
     message(FATAL_ERROR "WHAT_PRERELEASE must be empty or beta.N")
 endif()
@@ -100,12 +99,13 @@ FetchContent_MakeAvailable(webview2)
 add_library(what_haweb STATIC src/modules/haweb/HomeAssistantWeb.cpp src/modules/haweb/HomeAssistantWeb.h
     src/modules/haweb/HomeAssistantWebBrowser.cpp
     src/modules/haweb/HomeAssistantWebPermissions.cpp
+    src/modules/haweb/PipDocking.cpp src/modules/haweb/PipDocking.h
     src/modules/haweb/HomeAssistantWebState.h src/modules/haweb/WebOptions.h
     src/modules/haweb/BrowserScript.h src/modules/haweb/SidebarScript.h src/modules/haweb/DesktopPlacement.h)
 target_include_directories(what_haweb PUBLIC src PRIVATE "${webview2_SOURCE_DIR}/build/native/include")
 target_compile_definitions(what_haweb PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
-target_link_libraries(what_haweb PUBLIC Qt6::Quick PRIVATE
-    "${webview2_SOURCE_DIR}/build/native/${WHAT_ARCHITECTURE}/WebView2LoaderStatic.lib" ole32 user32 shlwapi version dwmapi)
+target_link_libraries(what_haweb PUBLIC Qt6::Quick PRIVATE Qt6::Widgets
+    "${webview2_SOURCE_DIR}/build/native/${WHAT_ARCHITECTURE}/WebView2LoaderStatic.lib" ole32 user32 shlwapi version dwmapi comctl32)
 add_library(what_settings STATIC src/app/SettingsStore.cpp src/app/SettingsStore.h)
 target_compile_features(what_settings PRIVATE cxx_std_20)
 target_include_directories(what_settings PUBLIC src)

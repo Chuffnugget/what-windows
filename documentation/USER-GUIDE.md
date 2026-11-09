@@ -99,6 +99,11 @@ Choose **Display Mode** in the module settings:
 - **Picture-in-Picture** opens a smaller window above your other apps. Drag its
   title bar to move it, or any edge or corner to resize it. Its size and position
   are saved in settings.yaml and kept within the available monitor area when reopened.
+  With **Snap Picture-in-Picture to Screen Edges** enabled, dragging near an edge
+  shows a thin outline of its landing position. When moving between monitors,
+  the pointer selects the destination screen. Release to snap to that side or corner, including
+  just above the taskbar. Drag away to undock. This also works with the rolled-up
+  title bar and on other monitors; the dashboard keeps its size.
   The up arrow collapses the toolbar to a thin strip; click the strip to reveal it.
   The minus button rolls the window up to just its title bar. Restore brings back
   its previous size without reloading the dashboard. Navigation, zoom, audio,

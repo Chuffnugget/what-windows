@@ -101,7 +101,6 @@ public:
     static bool validHotkey(const QString &text);
     static bool validMode(const QString &mode);
     static QRect fitPictureInPicture(QRect bounds, const QRect &workArea);
-    static QRect snapPictureInPicture(QRect bounds, const QRect &workArea, int distance = 16);
     static QRect resizePictureInPicture(QRect bounds, double ratio, int edges, QSize minimum);
     bool nativeEventFilter(const QByteArray &, void *, qintptr *) override;
 signals:
@@ -124,6 +123,8 @@ private:
     void syncDesktop();
     void updateWindowGeometry();
     void savePictureInPicture();
+    void clearPipDockPreview();
+    void setPipWindowHook(bool attach);
     void applyPipWindowScale();
     void startBrowser();
     void stopBrowser();

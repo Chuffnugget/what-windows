@@ -1,5 +1,6 @@
 #include <QQmlIncubationController>
 #include "app/Architecture.h"
+#include "modules/haweb/PipDocking.h"
 #include "app/SettingsStore.h"
 #include "app/AppRuntime.h"
 #include "modules/windows/media/MediaSessions.h"
@@ -1031,9 +1032,6 @@ private slots:
         QVERIFY(!ConfigurationFile::decode(ConfigurationFile::encode(
             {{"modules/haweb/options", QJsonObject{{"cloudUrl", "javascript:alert(1)"}}}})).error.isEmpty());
 
-        const QRect work(0, 0, 1920, 1040);
-        QCOMPARE(HomeAssistantWeb::snapPictureInPicture(QRect(9, 10, 480, 360), work).topLeft(), QPoint(0, 0));
-        QCOMPARE(HomeAssistantWeb::snapPictureInPicture(QRect(1430, 670, 480, 360), work).bottomRight(), work.bottomRight());
         const QRect dragged(100, 150, 500, 360);
         const auto resized = HomeAssistantWeb::resizePictureInPicture(dragged, 16.0 / 9,
             Qt::LeftEdge | Qt::TopEdge, QSize(360, 260));
@@ -1326,6 +1324,293 @@ private slots:
         web.setEnabled(false);
         QVERIFY(!web.ready());
         QVERIFY(web.issues().isEmpty());
+        web.setOverlayWindow(nullptr);
+    }
+
+    void homeAssistantWebDockTargets_data() {
+        QTest::addColumn<QRect>("work");
+        QTest::addColumn<int>("scale");
+        QTest::newRow("bottom-taskbar") << QRect(0, 0, 1920, 1040) << 1;
+        QTest::newRow("left-taskbar") << QRect(60, 0, 1860, 1080) << 1;
+        QTest::newRow("top-taskbar") << QRect(0, 48, 1920, 1032) << 1;
+        QTest::newRow("right-taskbar") << QRect(0, 0, 1860, 1080) << 1;
+        QTest::newRow("negative-origin-200-percent") << QRect(-3840, -1000, 3840, 2080) << 2;
+    }
+
+    void homeAssistantWebDockTargets() {
+        QFETCH(QRect, work);
+        QFETCH(int, scale);
+        const int threshold = 24 * scale;
+        const QSize size(480 * scale, 360 * scale);
+        QRect centre(QPoint(), size);
+        centre.moveCenter(work.center());
+        const Qt::Edges edges[]{Qt::LeftEdge, Qt::RightEdge, Qt::TopEdge, Qt::BottomEdge,
+                               Qt::LeftEdge | Qt::TopEdge, Qt::RightEdge | Qt::TopEdge,
+                               Qt::LeftEdge | Qt::BottomEdge, Qt::RightEdge | Qt::BottomEdge};
+        for (const auto edge : edges) {
+            auto nearEdge = centre;
+            auto expected = centre;
+            if (edge.testFlag(Qt::LeftEdge)) {
+                nearEdge.moveLeft(work.left() + threshold);
+                expected.moveLeft(work.left());
+            }
+            if (edge.testFlag(Qt::RightEdge)) {
+                nearEdge.moveRight(work.right() - threshold);
+                expected.moveRight(work.right());
+            }
+            if (edge.testFlag(Qt::TopEdge)) {
+                nearEdge.moveTop(work.top() + threshold);
+                expected.moveTop(work.top());
+            }
+            if (edge.testFlag(Qt::BottomEdge)) {
+                nearEdge.moveBottom(work.bottom() - threshold);
+                expected.moveBottom(work.bottom());
+            }
+            const auto target = pipDockTarget(nearEdge, work, threshold);
+            QCOMPARE(target.edges, edge);
+            QCOMPARE(target.bounds, expected);
+            QCOMPARE(target.bounds.size(), size);
+        }
+        auto outsideRange = centre;
+        outsideRange.moveLeft(work.left() + threshold + 1);
+        QVERIFY(!pipDockTarget(outsideRange, work, threshold).edges);
+        outsideRange.moveLeft(work.left() - threshold - 1);
+        QCOMPARE(pipDockTarget(outsideRange, work, threshold).edges, Qt::Edges(Qt::LeftEdge));
+        // A preview survives small movements away from the entry threshold,
+        // but releases once the user deliberately drags back into the screen.
+        outsideRange.moveLeft(work.left() + threshold + threshold / 4);
+        QCOMPARE(pipDockTarget(outsideRange, work, threshold, {}, Qt::LeftEdge).edges,
+                 Qt::Edges(Qt::LeftEdge));
+        outsideRange.moveLeft(work.left() + threshold * 2);
+        QVERIFY(!pipDockTarget(outsideRange, work, threshold, {}, Qt::LeftEdge).edges);
+        for (const auto edge : edges) {
+            auto beyond = centre;
+            if (edge.testFlag(Qt::LeftEdge))
+                beyond.moveLeft(work.left() - size.width() / 2);
+            if (edge.testFlag(Qt::RightEdge))
+                beyond.moveRight(work.right() + size.width() / 2);
+            if (edge.testFlag(Qt::TopEdge))
+                beyond.moveTop(work.top() - size.height() / 2);
+            if (edge.testFlag(Qt::BottomEdge))
+                beyond.moveBottom(work.bottom() + size.height() / 2);
+            const auto target = pipDockTarget(beyond, work, threshold);
+            QCOMPARE(target.edges, edge);
+            QCOMPARE(target.bounds.size(), size);
+            QVERIFY(work.contains(target.bounds));
+        }
+        // Crossing to the monitor under the pointer must select its near edge,
+        // even while most of the window still lies on the previous monitor.
+        QRect crossing(QPoint(work.left() - size.width() * 3 / 4, centre.top()), size);
+        const auto crossed = pipDockTarget(crossing, work, threshold,
+                                          QPoint(work.left() + 2 * scale, centre.center().y()));
+        QCOMPARE(crossed.edges, Qt::Edges(Qt::LeftEdge));
+        QCOMPARE(crossed.bounds.left(), work.left());
+        const auto pointerCorner = pipDockTarget(centre, work, threshold, work.bottomRight());
+        QCOMPARE(pointerCorner.edges, Qt::Edges(Qt::RightEdge | Qt::BottomEdge));
+        QCOMPARE(pointerCorner.bounds.bottomRight(), work.bottomRight());
+        QCOMPARE(pipDockTarget(centre, {}, threshold).bounds, centre);
+        QVERIFY(!pipDockTarget(centre, {}, threshold).edges);
+        auto title = centre;
+        title.setHeight(44 * scale);
+        title.moveBottom(work.bottom() + threshold / 2);
+        const auto docked = pipDockTarget(title, work, threshold);
+        QCOMPARE(docked.edges, Qt::Edges(Qt::BottomEdge));
+        QCOMPARE(docked.bounds.height(), 44 * scale);
+        QCOMPARE(docked.bounds.bottom(), work.bottom());
+    }
+
+    void homeAssistantWebDockDrag_data() {
+        QTest::addColumn<int>("surfaceState");
+        QTest::newRow("created-after-attachment") << 0;
+        QTest::newRow("already-created") << 1;
+        QTest::newRow("recreated") << 2;
+    }
+
+    void homeAssistantWebDockDrag() {
+        QFETCH(int, surfaceState);
+        QTemporaryDir dir;
+        QSettings settings(dir.filePath("settings.yaml"), SettingsStore::format());
+        HomeAssistantWeb web(settings, dir.path(), true);
+        QWindow overlay;
+        overlay.setFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
+        overlay.setProperty("dockAccent", QColor("#65c9f5"));
+        if (surfaceState == 1)
+            overlay.create();
+        web.setOverlayWindow(&overlay);
+        auto options = web.options();
+        options["pipHotkey"] = "";
+        QVERIFY(web.configure("https://example.test", "pip", 100, "", options));
+        web.setEnabled(true);
+        web.showOverlay("pip");
+        QVERIFY(QTest::qWaitForWindowExposed(&overlay));
+        if (surfaceState == 2) {
+            overlay.hide();
+            overlay.destroy();
+            web.showOverlay("pip");
+            QVERIFY(QTest::qWaitForWindowExposed(&overlay));
+        }
+        const auto hwnd = reinterpret_cast<HWND>(overlay.winId());
+        const auto rect = [](const RECT &r) {
+            return QRect(r.left, r.top, r.right - r.left, r.bottom - r.top);
+        };
+        const auto nativeBounds = [&] {
+            RECT bounds{};
+            GetWindowRect(hwnd, &bounds);
+            return rect(bounds);
+        };
+        const auto move = [&](QRect bounds) {
+            SetWindowPos(hwnd, nullptr, bounds.x(), bounds.y(), bounds.width(), bounds.height(),
+                         SWP_NOZORDER | SWP_NOACTIVATE);
+        };
+        const auto send = [&](UINT type, LPARAM data = 0, WPARAM key = 0) {
+            // Exercise Qt's actual window procedure. Calling nativeEventFilter
+            // directly misses the input messages Qt excludes from global filters.
+            return SendMessageW(hwnd, type, key, data);
+        };
+        const auto drag = [&](QRect bounds) {
+            RECT native{bounds.left(), bounds.top(), bounds.right() + 1, bounds.bottom() + 1};
+            send(WM_MOVING, reinterpret_cast<LPARAM>(&native));
+            move(bounds);
+        };
+        const auto outlines = [] {
+            QList<QWidget *> result;
+            for (auto *widget : QApplication::topLevelWidgets())
+                if (widget->objectName() == "hawebDockPreview" && widget->isVisible())
+                    result.append(widget);
+            return result;
+        };
+        MONITORINFO monitor{};
+        monitor.cbSize = sizeof(monitor);
+        QVERIFY(GetMonitorInfo(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &monitor));
+        const auto work = rect(monitor.rcWork);
+        const int inset = MulDiv(10, int(GetDpiForWindow(hwnd)), 96);
+        const auto size = nativeBounds().size();
+        QRect centre(QPoint(), size);
+        centre.moveCenter(work.center());
+        auto nearEdge = centre;
+        nearEdge.moveBottomRight(work.bottomRight() - QPoint(inset, inset));
+        move(centre);
+        const auto foreground = GetForegroundWindow();
+        send(WM_ENTERSIZEMOVE);
+        drag(nearEdge);
+        QCOMPARE(outlines().size(), 4);
+        QCOMPARE(GetForegroundWindow(), foreground); // The guide cannot steal drag/focus.
+        QCOMPARE(nativeBounds(), nearEdge); // Preview only until release.
+        auto landing = nearEdge;
+        landing.moveBottomRight(work.bottomRight());
+        for (auto *outline : outlines()) {
+            QVERIFY(outline->windowFlags().testFlag(Qt::WindowTransparentForInput));
+            QVERIFY(outline->windowFlags().testFlag(Qt::WindowDoesNotAcceptFocus));
+            RECT native{};
+            QVERIFY(GetWindowRect(reinterpret_cast<HWND>(outline->winId()), &native));
+            QVERIFY(landing.contains(rect(native)));
+            QVERIFY(qMin(rect(native).width(), rect(native).height()) <= MulDiv(3, int(GetDpiForWindow(hwnd)), 96));
+            QTRY_COMPARE(qRound(outline->width() * outline->devicePixelRatioF()), rect(native).width());
+            QTRY_COMPARE(qRound(outline->height() * outline->devicePixelRatioF()), rect(native).height());
+            const auto image = outline->grab().toImage();
+            QVERIFY(!image.isNull());
+            // The guide is a solid thin outline, with stronger docking edges.
+            const auto pixel = image.pixelColor(image.width() / 2, image.height() / 2);
+            QVERIFY(pixel.alpha() == 115 || pixel.alpha() == 235);
+            QVERIFY(qAbs(pixel.red() - 101) <= 2);
+            QVERIFY(qAbs(pixel.green() - 201) <= 2);
+            QVERIFY(qAbs(pixel.blue() - 245) <= 2);
+        }
+        send(WM_EXITSIZEMOVE);
+        QCOMPARE(nativeBounds().bottomRight(), work.bottomRight());
+        QCOMPARE(nativeBounds().size(), size);
+        QVERIFY(outlines().isEmpty());
+        const auto saved = settings.value("modules/haweb/pip_bounds").toList();
+        QCOMPARE(saved.size(), 4);
+        QCOMPARE(QRect(saved[0].toInt(), saved[1].toInt(), saved[2].toInt(), saved[3].toInt()),
+                 overlay.geometry());
+
+        send(WM_ENTERSIZEMOVE);
+        drag(nearEdge);
+        QVERIFY(!outlines().isEmpty());
+        drag(centre);
+        QVERIFY(outlines().isEmpty());
+        send(WM_EXITSIZEMOVE);
+        QCOMPARE(nativeBounds(), centre);
+
+        // Drag well beyond the old narrow band: the guide must stay visible,
+        // and releasing must use that same landing rectangle.
+        auto beyond = nearEdge;
+        beyond.moveBottomRight(work.bottomRight() + QPoint(size.width() / 3, size.height() / 3));
+        send(WM_ENTERSIZEMOVE);
+        drag(beyond);
+        QCOMPARE(outlines().size(), 4);
+        send(WM_EXITSIZEMOVE);
+        QCOMPARE(nativeBounds(), landing);
+        QVERIFY(outlines().isEmpty());
+
+        // Cancellation and a restored native position must not commit old targets.
+        send(WM_ENTERSIZEMOVE);
+        drag(nearEdge);
+        send(WM_CANCELMODE);
+        QVERIFY(outlines().isEmpty());
+        send(WM_EXITSIZEMOVE);
+        QCOMPARE(nativeBounds(), nearEdge);
+        send(WM_ENTERSIZEMOVE);
+        drag(nearEdge);
+        move(centre); // Windows restored the original rectangle after Escape.
+        send(WM_EXITSIZEMOVE);
+        QCOMPARE(nativeBounds(), centre);
+        QVERIFY(outlines().isEmpty());
+
+        options["pipSnap"] = false;
+        QVERIFY(web.configure(web.url(), web.mode(), web.scale(), "", options));
+        send(WM_ENTERSIZEMOVE);
+        drag(nearEdge);
+        send(WM_EXITSIZEMOVE);
+        QCOMPARE(nativeBounds(), nearEdge);
+        QVERIFY(outlines().isEmpty());
+        options["pipSnap"] = true;
+        QVERIFY(web.configure(web.url(), web.mode(), web.scale(), "", options));
+
+        options["pipAspectRatio"] = "16:9";
+        QVERIFY(web.configure(web.url(), web.mode(), web.scale(), "", options));
+        RECT sizing{centre.left(), centre.top(), centre.left() + 640, centre.top() + 300};
+        QCOMPARE(send(WM_SIZING, reinterpret_cast<LPARAM>(&sizing), WMSZ_BOTTOMRIGHT), LRESULT(TRUE));
+        QVERIFY(qAbs(double(sizing.right - sizing.left) / (sizing.bottom - sizing.top) - 16.0 / 9) < 0.01);
+        send(WM_CANCELMODE);
+        options["pipAspectRatio"] = "free";
+        QVERIFY(web.configure(web.url(), web.mode(), web.scale(), "", options));
+
+        web.togglePipMinimised();
+        const int titleHeight = nativeBounds().height();
+        auto title = nativeBounds();
+        title.moveTopLeft(work.topLeft() + QPoint(inset, inset));
+        send(WM_ENTERSIZEMOVE);
+        drag(title);
+        QCOMPARE(outlines().size(), 4);
+        send(WM_EXITSIZEMOVE);
+        QCOMPARE(nativeBounds().topLeft(), work.topLeft());
+        QCOMPARE(nativeBounds().height(), titleHeight);
+        QVERIFY(web.pipMinimised());
+        web.togglePipMinimised();
+        QCOMPARE(nativeBounds().topLeft(), work.topLeft());
+        QCOMPARE(nativeBounds().size(), size);
+
+        send(WM_ENTERSIZEMOVE);
+        drag(nearEdge);
+        QVERIFY(!outlines().isEmpty());
+        web.hideOverlay();
+        QVERIFY(outlines().isEmpty());
+        web.showOverlay("pip");
+        send(WM_ENTERSIZEMOVE);
+        drag(nearEdge);
+        QVERIFY(!outlines().isEmpty());
+        web.showOverlay("fullscreen");
+        QVERIFY(outlines().isEmpty());
+        web.showOverlay("pip");
+        send(WM_ENTERSIZEMOVE);
+        drag(nearEdge);
+        QVERIFY(!outlines().isEmpty());
+        web.shutdown();
+        QVERIFY(outlines().isEmpty());
+        drag(nearEdge);
+        QVERIFY(outlines().isEmpty());
         web.setOverlayWindow(nullptr);
     }
 
@@ -10993,8 +11278,19 @@ private slots:
         QVERIFY(!Displays::matches(start, renumbered));
     }
 
+    void disabledDisplaysWithholdSavedLayoutsOnWire_data() {
+        QTest::addColumn<bool>("deltas");
+        QTest::addColumn<bool>("reconnectAfterChange");
+        QTest::newRow("snapshot") << false << false;
+        QTest::newRow("delta") << true << false;
+        QTest::newRow("snapshot-reconnect") << false << true;
+        QTest::newRow("delta-reconnect") << true << true;
+    }
+
     void disabledDisplaysWithholdSavedLayoutsOnWire() {
-        for (bool deltas : {false, true}) {
+        QFETCH(bool, deltas);
+        QFETCH(bool, reconnectAfterChange);
+        {
             QTemporaryDir dir;
             Controller app(dir.path(), true);
             app.stopService();
@@ -11007,31 +11303,48 @@ private slots:
             app.displayMessage = label;
             QVERIFY(app.startService());
             app.publish();
+            int reconnectsLeft = 0;
             QWebSocket socket;
             auto ssl = QSslConfiguration::defaultConfiguration();
             ssl.setPeerVerifyMode(QSslSocket::VerifyNone);
             socket.setSslConfiguration(ssl);
             QSignalSpy messages(&socket, &QWebSocket::textMessageReceived);
-            socket.open(QUrl(QString("wss://127.0.0.1:%1").arg(app.activePort)));
+            QSignalSpy connections(&socket, &QWebSocket::connected);
+            const QUrl address(QString("wss://127.0.0.1:%1").arg(app.activePort));
+            connect(&socket, &QWebSocket::connected, &socket, [&] {
+                socket.sendTextMessage(QJsonDocument(QJsonObject{{"type", "auth"},
+                                                                 {"protocol", 2},
+                                                                 {"token", app.token},
+                                                                 {"delta_v1", deltas}})
+                                           .toJson(QJsonDocument::Compact));
+            });
+            // Revocation aborts peers with old-policy bytes still queued. Like
+            // Home Assistant, reauthenticate for a fresh baseline in that case.
+            // One reconnect per change keeps unexpected failures bounded.
+            connect(&socket, &QWebSocket::disconnected, &socket, [&socket, &reconnectsLeft, address] {
+                if (reconnectsLeft-- > 0)
+                    QTimer::singleShot(0, &socket, [&socket, address] { socket.open(address); });
+            });
+            socket.open(address);
             QTRY_COMPARE(socket.state(), QAbstractSocket::ConnectedState);
-            socket.sendTextMessage(QJsonDocument(QJsonObject{{"type", "auth"},
-                                                             {"protocol", 2},
-                                                             {"token", app.token},
-                                                             {"delta_v1", deltas}})
-                                       .toJson(QJsonDocument::Compact));
             QTRY_VERIFY(messages.size() >= 2);
             auto lastFrame = [&] {
-                return QJsonDocument::fromJson(messages.last()[0].toString().toUtf8()).object();
+                return messages.isEmpty() ? QJsonObject()
+                    : QJsonDocument::fromJson(messages.last()[0].toString().toUtf8()).object();
             };
             QTRY_VERIFY(messages.last()[0].toString().contains(label));
             for (bool disableWindows : {false, true}) {
                 messages.clear();
+                const auto beforeConnections = connections.size();
+                reconnectsLeft = 1;
                 if (disableWindows)
                     app.setModuleEnabled("windows", false);
                 else
                     app.setDisplaysEnabled(false);
-                QTRY_VERIFY(!messages.empty());
-                QTRY_VERIFY(!lastFrame()["displays"].toObject()["enabled"].toBool());
+                if (reconnectAfterChange)
+                    socket.abort(); // Exercise the fresh-baseline path deterministically too.
+                QTRY_VERIFY(lastFrame().contains("displays") &&
+                            !lastFrame()["displays"].toObject()["enabled"].toBool());
                 const auto wire = messages.last()[0].toString();
                 QVERIFY(!wire.contains(label));
                 QVERIFY(!wire.contains(layoutId));
@@ -11039,10 +11352,12 @@ private slots:
                 QVERIFY(display["layouts"].toArray().isEmpty());
                 QVERIFY(display["monitors"].toArray().isEmpty());
                 QCOMPARE(display["status"].toString(), QString("Disabled"));
-                QCOMPARE(lastFrame()["type"].toString(), deltas ? QString("delta") : QString("snapshot"));
+                const bool continuedDelta = deltas && connections.size() == beforeConnections;
+                QCOMPARE(lastFrame()["type"].toString(), continuedDelta ? QString("delta") : QString("snapshot"));
                 QCOMPARE(app.displayLayouts.size(), 1); // Local configuration survives revocation.
                 QVERIFY(!QJsonDocument(app.snapshot()).toJson().contains(label.toUtf8()));
                 if (!disableWindows) {
+                    reconnectsLeft = 1;
                     app.setDisplaysEnabled(true);
                     QTRY_VERIFY(!app.displayJob.isRunning());
                     app.publish();
@@ -11053,6 +11368,7 @@ private slots:
             app.displayRollback = {QJsonObject{{"id", "recovery-fixture"}}};
             QVERIFY(app.displays()["pending"].toBool()); // Local recovery remains visible.
             QVERIFY(!app.snapshot()["displays"].toObject()["pending"].toBool());
+            reconnectsLeft = 0;
             socket.close();
             app.stopService();
         }

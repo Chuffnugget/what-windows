@@ -83,6 +83,7 @@ Item {
     Window {
         id: overlay
         objectName: "homeAssistantWebOverlay"
+        property color dockAccent: Theme.accent
         title: "Home Assistant Web - WHAT"
         // The hotkey must work while WHAT's main window is hidden or minimised.
         transientParent: null
