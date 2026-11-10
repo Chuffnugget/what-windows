@@ -1,5 +1,6 @@
 #pragma once
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <QJsonArray>
 #include <QString>
 
@@ -19,6 +20,10 @@ public:
     HwinfoSnapshot read(bool testMode = false) const;
 
 private:
+    QString missingMemoryStatus() const;
+
     mutable QByteArray previousBytes;
     mutable HwinfoSnapshot previousSnapshot;
+    mutable QElapsedTimer processCheckAge;
+    mutable QString missingMemoryMessage;
 };

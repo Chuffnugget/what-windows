@@ -14,7 +14,8 @@ public:
     static QString validate(const QJsonObject &args);
     void setPermitted(bool enabled);
     void prepareActivation();
-    void send(QJsonObject args, QString request, std::shared_ptr<std::atomic_bool> lease);
+    void send(QJsonObject args, QString request, std::shared_ptr<std::atomic_bool> lease,
+              QString installation, std::shared_ptr<std::atomic_bool> installationLease);
     QJsonObject state() const;
 signals:
     void completed(QString request, bool ok, QString message);
@@ -22,6 +23,9 @@ signals:
     void openRequested(bool expired);
 
 private:
+    friend class ControllerTests;
+    void activateForTesting(const QString &installation, const QString &id, const QString &action,
+                            const QString &reply);
     struct Mailbox;
     struct Native;
     std::shared_ptr<Mailbox> mailbox;

@@ -3653,7 +3653,7 @@ void BeacnBackend::refreshNativeStates(bool allowDiscovery) {
                 quint64 table = 0, data = 0, name = 0;
                 unsigned char fields[0x5a]{};
                 if (!readRemoteValue(process, obj, table) || table != base + BeacnLayout::FaderTable ||
-                    !readRemoteValue(process, obj + 0x150, data) ||
+                    !readRemoteValue(process, obj + BeacnLayout::FaderData, data) ||
                     !readRemoteBlock(process, data, fields, sizeof(fields)))
                     continue;
                 std::memcpy(&name, fields, 8);
@@ -3761,13 +3761,14 @@ bool BeacnBackend::validateNativeFader(void *process, quintptr base, quintptr ob
     char label[128]{};
     if (!base || !object || name.isEmpty() || name.size() >= qsizetype(sizeof(label)) ||
         !readRemoteValue(process, object, table) || table != base + BeacnLayout::FaderTable ||
-        !readRemoteValue(process, object + 0x150, data) || !readRemoteValue(process, data, nameAddress) ||
+        !readRemoteValue(process, object + BeacnLayout::FaderData, data) ||
+        !readRemoteValue(process, data, nameAddress) ||
         !readRemoteBlock(process, nameAddress, label, name.size() + 1) ||
         std::memcmp(label, name.constData(), name.size() + 1) ||
         !readRemoteBlock(process, data + 0x10, levels, sizeof(levels)) ||
-        !readRemoteValue(process, data + 0x09, linkedFlag) || linkedFlag > 1 ||
-        !std::isfinite(levels[0]) || !std::isfinite(levels[1]) || levels[0] < 0 || levels[0] > 1 ||
-        levels[1] < 0 || levels[1] > 1 || (linked && (linkedFlag != 1 || levels[0] != levels[1])))
+        !readRemoteValue(process, data + 0x09, linkedFlag) || linkedFlag > 1 || !std::isfinite(levels[0]) ||
+        !std::isfinite(levels[1]) || levels[0] < 0 || levels[0] > 1 || levels[1] < 0 || levels[1] > 1 ||
+        (linked && (linkedFlag != 1 || levels[0] != levels[1])))
         return false;
     current = levels[0];
     return true;
@@ -3866,7 +3867,7 @@ bool BeacnBackend::writeNativeVolume(int sourcePair, double percentStep, bool re
     };
 
     static_assert(sizeof(Command) == 168);
-    const QString mappingName = QStringLiteral("Local\\BEACN.WHAT.Volume142.%1").arg(pid);
+    const QString mappingName = QStringLiteral("Local\\BEACN.WHAT.Volume14219.%1").arg(pid);
     HANDLE mapping = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, sizeof(Command),
                                         reinterpret_cast<LPCWSTR>(mappingName.utf16()));
     const DWORD mappingError = GetLastError();
@@ -3912,7 +3913,7 @@ bool BeacnBackend::writeNativeVolume(int sourcePair, double percentStep, bool re
                       .arg(sourceName)
                       .arg(operation));
         DWORD_PTR result = 0;
-        sent = SendMessageTimeoutW(search.hwnd, RegisterWindowMessageW(L"BEACN.WHAT.Volume.142"), 0, 0,
+        sent = SendMessageTimeoutW(search.hwnd, RegisterWindowMessageW(L"BEACN.WHAT.Volume.14219"), 0, 0,
                                    SMTO_ABORTIFHUNG, 3000, &result) != 0;
         sendError = GetLastError();
     }
@@ -4200,12 +4201,14 @@ void BeacnBackend::readGlobalState(void *handle, quintptr base, const QVector<qu
             valid.append(p);
     if (valid.size() != 1)
         return;
-    const auto root = valid[0], data = ptr(root + 0x2b0), listen = ptr(root + 0x258),
-               audience = ptr(root + 0x268);
+    const auto root = valid[0], data = ptr(root + BeacnLayout::MixerData),
+               listen = ptr(root + BeacnLayout::MixerListening),
+               audience = ptr(root + BeacnLayout::MixerAudience);
     if (ptr(listen) != base + BeacnLayout::ListeningTable || ptr(audience) != base + BeacnLayout::AudienceTable)
         return;
-    int page = integer(root + 0x674), pages = integer(root + 0x678), mix = integer(data + 0xd8);
-    const auto ld = ptr(listen + 0x488), ad = ptr(audience + 0x180);
+    int page = integer(root + BeacnLayout::MixerPage), pages = integer(root + BeacnLayout::MixerPages),
+        mix = integer(data + BeacnLayout::MixerSubmix);
+    const auto ld = ptr(listen + BeacnLayout::ListeningData), ad = ptr(audience + BeacnLayout::AudienceData);
     int active = byte(ld + 0x10);
     if (page < 1 || pages < page || pages > 64 || mix < 0 || mix > 1 || active > 1)
         return;
@@ -4222,12 +4225,13 @@ void BeacnBackend::readGlobalState(void *handle, quintptr base, const QVector<qu
     // Read the active UI's ordered shared_ptr vector so unsaved drag/reorder changes
     // appear immediately; never reinterpret a visual row number as an audio route.
     QVariantList sourceOrder;
-    const auto orderBegin = ptr(root + 0x218), orderEnd = ptr(root + 0x220);
+    const auto orderBegin = ptr(root + BeacnLayout::MixerFadersBegin),
+               orderEnd = ptr(root + BeacnLayout::MixerFadersEnd);
     bool orderValid = orderBegin && orderEnd >= orderBegin && (orderEnd - orderBegin) % 16 == 0 &&
                       (orderEnd - orderBegin) / 16 <= 128;
     if (orderValid)
         for (auto it = orderBegin; it < orderEnd; it += 16) {
-            auto knob = ptr(it), knobData = ptr(knob + 0x150);
+            auto knob = ptr(it), knobData = ptr(knob + BeacnLayout::FaderData);
             if (ptr(knob) != base + BeacnLayout::FaderTable || !knobData) {
                 orderValid = false;
                 break;
@@ -4262,24 +4266,26 @@ void BeacnBackend::readGlobalState(void *handle, quintptr base, const QVector<qu
     QStringList names;
     QString current;
     if (valid.size() == 1) {
-        const auto owner = valid[0], begin = ptr(owner + 0x190), end = ptr(owner + 0x198);
+        const auto owner = valid[0], begin = ptr(owner + BeacnLayout::ProfilesBegin),
+                   end = ptr(owner + BeacnLayout::ProfilesEnd);
         bool ok = end >= begin && (end - begin) % 16 == 0 && (end - begin) / 16 <= 128;
         int activeCount = 0;
         if (ok)
             for (auto it = begin; it < end; it += 16) {
                 const auto row = ptr(it);
-                if (ptr(row) != base + BeacnLayout::ProfileRowTable || ptr(row + 0x250) != owner + 0x140 ||
-                    byte(row + 0x171) > 1) {
+                if (ptr(row) != base + BeacnLayout::ProfileRowTable ||
+                    ptr(row + BeacnLayout::ProfileOwner) != owner + BeacnLayout::ProfilesListener ||
+                    byte(row + BeacnLayout::ProfileSelected) > 1) {
                     ok = false;
                     break;
                 }
-                auto name = text(ptr(row + 0x178));
+                auto name = text(ptr(row + BeacnLayout::ProfileName));
                 if (name.isEmpty() || names.contains(name)) {
                     ok = false;
                     break;
                 }
                 names.append(name);
-                if (byte(row + 0x171)) {
+                if (byte(row + BeacnLayout::ProfileSelected)) {
                     current = name;
                     ++activeCount;
                 }
@@ -4294,57 +4300,64 @@ void BeacnBackend::readGlobalState(void *handle, quintptr base, const QVector<qu
     state.insert("profiles", names);
     state.insert("profile", current);
     state.insert("profilesValid", m_globalProfiles != 0);
-    // JUCE SimpleValueSource stores its var at +0x40; validate the concrete
-    // source and var types before reading strings or numeric slider values.
+    // Validate JUCE SimpleValueSource and its concrete var type
+    // before reading strings or numeric slider values.
     auto comboText = [&](quintptr combo) {
-        auto source = ptr(ptr(combo + 0x220) + 0x1f0);
-        if (ptr(combo) != base + BeacnLayout::ComboTable || ptr(source) != base + BeacnLayout::ValueSourceTable ||
-            ptr(source + 0x40) != base + BeacnLayout::StringValueType)
+        auto source = ptr(ptr(combo + BeacnLayout::ComboLabel) + BeacnLayout::LabelValueSource);
+        if (ptr(combo) != base + BeacnLayout::ComboTable ||
+            ptr(source) != base + BeacnLayout::ValueSourceTable ||
+            ptr(source + BeacnLayout::ValueType) != base + BeacnLayout::StringValueType)
             return QString();
-        return text(ptr(source + 0x48));
+        return text(ptr(source + BeacnLayout::ValuePayload));
     };
     auto sliderValue = [&](quintptr slider) {
-        auto source = ptr(ptr(slider + 0x258) + 0x68);
+        auto source = ptr(ptr(slider + BeacnLayout::SliderImpl) + BeacnLayout::SliderValueSource);
         double value = -1;
-        if (ptr(source) == base + BeacnLayout::ValueSourceTable && ptr(source + 0x40) == base + BeacnLayout::DoubleValueType)
-            readRemoteValue(process, source + 0x48, value);
+        if (ptr(source) == base + BeacnLayout::ValueSourceTable &&
+            ptr(source + BeacnLayout::ValueType) == base + BeacnLayout::DoubleValueType)
+            readRemoteValue(process, source + BeacnLayout::ValuePayload, value);
         return value;
     };
     valid.clear();
     for (auto p : assignments)
-        if (ptr(p) == base + BeacnLayout::AssignmentsTable && ptr(p + 0x1c0) == root + 0x1d0)
+        if (ptr(p) == base + BeacnLayout::AssignmentsTable &&
+            ptr(p + BeacnLayout::AssignmentsOwner) == root + BeacnLayout::MixerAssignmentListener)
             valid.append(p);
     QStringList defaults;
     if (valid.size() == 1) {
         m_globalAssignments = valid[0];
-        for (auto off : {0x158, 0x168, 0x180, 0x190})
+        for (auto off : BeacnLayout::AssignmentCombos)
             defaults.append(comboText(ptr(valid[0] + off)));
     }
     state.insert("assignmentsValid", m_globalAssignments != 0);
     state.insert("assignments", defaults);
     valid.clear();
     for (auto p : settings)
-        if (ptr(p) == base + BeacnLayout::SystemSettingsTable && ptr(ptr(p + 0x1b0)) == base + BeacnLayout::DefaultResetManagerTable)
+        if (ptr(p) == base + BeacnLayout::SystemSettingsTable &&
+            ptr(ptr(p + BeacnLayout::SettingsResetManager)) == base + BeacnLayout::DefaultResetManagerTable)
             valid.append(p);
     state.insert("autoResetValid", false);
     if (valid.size() == 1) {
         // 1.4.2 keeps both default-device options in this group. Select the
         // auto-reset row by its setting ID, not its position or the row count.
-        const auto group = ptr(valid[0] + 0x168), begin = ptr(group + 0x168), end = ptr(group + 0x170);
+        const auto group = ptr(valid[0] + BeacnLayout::SettingsDefaultsGroup),
+                   begin = ptr(group + BeacnLayout::SettingsGroupBegin),
+                   end = ptr(group + BeacnLayout::SettingsGroupEnd);
         quintptr row = 0;
         int matches = 0;
         if (ptr(group) == base + BeacnLayout::SettingsGroupTable && end >= begin &&
             (end - begin) % 8 == 0 && end - begin <= 256) {
             for (auto it = begin; it < end; it += 8) {
                 const auto candidate = ptr(it);
-                if (ptr(candidate) == base + BeacnLayout::SettingsToggleTable && integer(candidate + 0x170) == 5) {
+                if (ptr(candidate) == base + BeacnLayout::SettingsToggleTable &&
+                    integer(candidate + BeacnLayout::SettingId) == 5) {
                     row = candidate;
                     ++matches;
                 }
             }
         }
         if (matches == 1) {
-            double value = sliderValue(ptr(row + 0x150));
+            double value = sliderValue(ptr(row + BeacnLayout::SettingSlider));
             if (value == 0 || value == 1) {
                 m_globalSettings = valid[0];
                 state.insert("autoResetValid", true);
@@ -4384,16 +4397,21 @@ void BeacnBackend::readGlobalState(void *handle, quintptr base, const QVector<qu
 
     valid.clear();
     for (auto p : osds)
-        if (ptr(p) == base + BeacnLayout::OsdTable && ptr(p + 0x3d0) + 8 == ptr(root + 0x340))
+        if (ptr(p) == base + BeacnLayout::OsdTable &&
+            ptr(p + BeacnLayout::OsdDevice) + 8 == ptr(root + BeacnLayout::MixerDevice))
             valid.append(p);
     state.insert("lightingValid", false);
     if (valid.size() == 1) {
-        auto osd = valid[0], picker = ptr(osd + 0x3b8), light = ptr(osd + 0x3c0);
-        auto dimmer = ptr(light + 0x130), screen = ptr(light + 0x120), buttons = ptr(light + 0x128);
+        auto osd = valid[0], picker = ptr(osd + BeacnLayout::OsdTheme),
+             light = ptr(osd + BeacnLayout::OsdLighting);
+        auto dimmer = ptr(light + BeacnLayout::LightingDimmer),
+             screen = ptr(light + BeacnLayout::LightingScreen),
+             buttons = ptr(light + BeacnLayout::LightingButtons);
         double seconds = -1;
-        readRemoteValue(process, dimmer + 0x48, seconds);
-        const auto screenValue = sliderValue(screen + 0x3c8), buttonValue = sliderValue(buttons + 0x3c8);
-        int theme = integer(picker + 0x140);
+        readRemoteValue(process, dimmer + BeacnLayout::DimmerSeconds, seconds);
+        const auto screenValue = sliderValue(screen + BeacnLayout::BrightnessSlider),
+                   buttonValue = sliderValue(buttons + BeacnLayout::BrightnessSlider);
+        int theme = integer(picker + BeacnLayout::ThemeId);
         if (ptr(picker) == base + BeacnLayout::ThemeTable && ptr(light) == base + BeacnLayout::LightingTable &&
             ptr(dimmer) == base + BeacnLayout::DimmerTable && ptr(screen) == base + BeacnLayout::ScreenBrightnessTable &&
             ptr(buttons) == base + BeacnLayout::ButtonBrightnessTable && theme >= 1 && theme <= 5 && std::isfinite(seconds) &&
@@ -4407,7 +4425,7 @@ void BeacnBackend::readGlobalState(void *handle, quintptr base, const QVector<qu
             state.insert("screenBrightness", screenValue);
             state.insert("buttonBrightness", buttonValue);
             state.insert("dimmerSeconds", seconds);
-            state.insert("dimmed", byte(dimmer + 0x50) == 1);
+            state.insert("dimmed", byte(dimmer + BeacnLayout::DimmerActive) == 1);
         }
     }
     const bool profileChanged = current != m_globalState.value("profile").toString();
@@ -4489,7 +4507,7 @@ bool BeacnBackend::globalControl(int operation, int value, const QString &target
         reinterpret_cast<LPARAM>(&search));
     if (!search.hwnd)
         return fail("BEACN main window is unavailable.");
-    const QString name = QStringLiteral("Local\\BEACN.WHAT.Global142.%1").arg(search.pid);
+    const QString name = QStringLiteral("Local\\BEACN.WHAT.Global14219.%1").arg(search.pid);
     HANDLE mapping = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0,
                                         sizeof(GlobalCommand), reinterpret_cast<LPCWSTR>(name.utf16()));
     const DWORD mappingError = GetLastError();

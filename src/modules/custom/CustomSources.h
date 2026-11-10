@@ -5,6 +5,7 @@
 
 namespace CustomSources {
 // Definitions stay on the PC. Only typed output rows and action names are shared.
+QString wmiCommand(const QJsonObject &definition);
 QString validate(const QJsonObject &definition);
 QJsonObject run(const QJsonObject &definition, const std::function<bool()> &cancelled);
 QJsonArray readings(const QJsonObject &definition, const QJsonObject &result);

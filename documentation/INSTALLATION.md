@@ -22,7 +22,9 @@ terminal command to run or certificate file to import manually.
 
 The wizard contains the full signed app package and its public signing certificate.
 It explains the certificate trust change before Install is clicked. The wizard
-runs as your user; only certificate import requests elevation. The package is then
+runs as your user; only certificate import requests elevation. That step runs verified
+embedded helper code with the embedded certificate supplied in memory; it does not
+execute an extracted script or reopen a certificate file after approval. The package is then
 registered for your user, preserving the existing profile and updater identity.
 Open WHAT with the wizard's Open app button or from Start. Close hides the app
 to its tray; Quit exits it. A new profile opens the main window. To start in the

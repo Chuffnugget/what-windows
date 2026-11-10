@@ -21,6 +21,7 @@ GlassDialog {
         spacing: 18
 
         Label {
+            textFormat: Text.PlainText
             text: "WHAT is free. No WHAT licence or payment is required."
             font.weight: Font.DemiBold
             color: Theme.accent
@@ -83,6 +84,7 @@ GlassDialog {
             color: Theme.selected
 
             Label {
+                textFormat: Text.PlainText
                 anchors.centerIn: parent
                 text: number
                 color: Theme.accent
@@ -95,6 +97,7 @@ GlassDialog {
             spacing: Theme.spaceXs
 
             Label {
+                textFormat: Text.PlainText
                 text: heading
                 color: Theme.ink
                 font.weight: Font.DemiBold

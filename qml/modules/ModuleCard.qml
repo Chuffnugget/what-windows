@@ -150,6 +150,7 @@ Rectangle {
                     spacing: 3
 
                     Label {
+                        textFormat: Text.PlainText
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
                         elide: Text.ElideRight

@@ -42,6 +42,7 @@ SpinBox {
         color: number.up.hovered ? Theme.hover : Theme.button
 
         Label {
+            textFormat: Text.PlainText
             anchors.centerIn: parent
             text: "+"
             color: number.enabled ? Theme.ink : Theme.muted
@@ -58,6 +59,7 @@ SpinBox {
         color: number.down.hovered ? Theme.hover : Theme.button
 
         Label {
+            textFormat: Text.PlainText
             anchors.centerIn: parent
             text: "−"
             color: number.enabled ? Theme.ink : Theme.muted

@@ -127,6 +127,7 @@ GlassDialog {
                         Layout.fillWidth: true
 
                         Label {
+                            textFormat: Text.PlainText
                             text: modelData.label
                             color: Theme.ink
                             Layout.fillWidth: true

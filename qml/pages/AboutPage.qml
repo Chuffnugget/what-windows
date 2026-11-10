@@ -84,6 +84,7 @@ DragScrollView {
                 spacing: Theme.spaceXs
 
                 Label {
+                    textFormat: Text.PlainText
                     text: card.heading
                     color: Theme.ink
                     font.pixelSize: Theme.fontBody
@@ -91,6 +92,7 @@ DragScrollView {
                 }
 
                 Label {
+                    textFormat: Text.PlainText
                     text: card.detail
                     color: Theme.muted
                     Layout.fillWidth: true
@@ -99,6 +101,7 @@ DragScrollView {
             }
 
             Label {
+                textFormat: Text.PlainText
                 text: "↗"
                 color: Theme.accent
                 font.pixelSize: Theme.fontHeading
@@ -140,6 +143,7 @@ DragScrollView {
                     Layout.fillWidth: true
 
                     Label {
+                        textFormat: Text.PlainText
                         objectName: "aboutVersion"
                         text: "WHAT v" + root.version
                         color: Theme.ink
@@ -156,6 +160,7 @@ DragScrollView {
                     }
 
                     Label {
+                        textFormat: Text.PlainText
                         text: "Developed by Chuffnugget"
                         color: Theme.ink
                     }
@@ -168,6 +173,7 @@ DragScrollView {
             spacing: 2
 
             Label {
+                textFormat: Text.PlainText
                 text: "Support Development"
                 color: Theme.ink
                 font.pixelSize: 17
@@ -176,6 +182,7 @@ DragScrollView {
             }
 
             Label {
+                textFormat: Text.PlainText
                 text: "If WHAT is useful to you, you can help fund its development. Support is optional; WHAT remains free and open source."
                 color: Theme.muted
                 Layout.fillWidth: true
@@ -209,6 +216,7 @@ DragScrollView {
             spacing: 2
 
             Label {
+                textFormat: Text.PlainText
                 text: "Source, Issues and Licences"
                 color: Theme.ink
                 font.pixelSize: 17
@@ -241,6 +249,7 @@ DragScrollView {
             }
 
             Label {
+                textFormat: Text.PlainText
                 Layout.topMargin: 14
                 text: "WHAT is an independent, free and open-source project, licensed under LGPL v3 or later. Built with Qt; third-party notices are included with the source and release files. Windows/Microsoft APIs, HWiNFO, NVIDIA NVML, Corsair iCUE, Wallpaper Engine, Home Assistant, Nabu Casa and Qt are third-party products, services or technologies with their own applicable licences and terms. WHAT and its developer are not affiliated with, sponsored by or endorsed by their respective owners. Names and logos belong to their respective owners. MQTT is an open protocol; MQTT libraries and broker software have their own licences. Third-party product and licence purchases do not go to Chuffnugget."
                 color: Theme.muted

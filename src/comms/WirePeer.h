@@ -49,9 +49,18 @@ public:
         return socket ? socket->sslConfiguration() : QSslConfiguration();
     }
 
+    static constexpr qint64 MaximumQueuedBytes = 16 * 1024 * 1024;
+
     qint64 sendTextMessage(const QString &text) {
         if (closed)
             return -1;
+        const auto remaining = MaximumQueuedBytes - bytesToWrite() - 14; // WebSocket header allowance.
+        // UTF-8 needs at most three bytes per UTF-16 unit. Only count precisely
+        // near the limit; normal small responses do not allocate another buffer.
+        if (remaining < 0 || (text.size() > remaining / 3 && text.toUtf8().size() > remaining)) {
+            abort();
+            return -1;
+        }
         if (socket)
             return socket->sendTextMessage(text);
         auto n = send ? send(text) : -1;

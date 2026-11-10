@@ -178,6 +178,7 @@ public:
     void setDiagnostics(bool enabled);
     void setInstallations(QJsonArray definitions);
     QString installationForSession(const QString &session) const;
+    std::shared_ptr<std::atomic_bool> installationLease(const QString &session) const;
 
     bool isListening() const {
         return running;

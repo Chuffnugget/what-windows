@@ -162,7 +162,7 @@ void NetworkWorker::stop() {
 void NetworkWorker::setSnapshot(QJsonObject value) {
     for (auto *installation : installations)
         installation->setSnapshot(value);
-    latest = installationSnapshot(value);
+    latest = managedInstallations ? value : installationSnapshot(value);
     receivedAt.restart();
     // Batch samples for up to 50 ms. Restarting the timer on every sample would
     // delay delivery indefinitely while readings keep arriving.
@@ -801,9 +801,10 @@ void NetworkWorker::replyCommand(const QString &session, const QString &id, bool
                 {"type", "command_result"}, {"id", id}, {"ok", ok}, {"message", message.left(512)}};
             if (!result.isEmpty())
                 reply["result"] = result;
+            const bool mqttPeer = it.key()->mqtt; // Sending can abort and erase this iterator.
             const auto submitted = it.key()->sendTextMessage(
                 QString::fromUtf8(QJsonDocument(reply).toJson(QJsonDocument::Compact)));
-            if (it.key()->mqtt)
+            if (mqttPeer)
                 mqtt->recordResult(ok, submitted >= 0);
             return;
         }

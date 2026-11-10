@@ -47,6 +47,7 @@ Button {
         }
 
         Label {
+            textFormat: Text.PlainText
             id: navigationGlyph
             objectName: "navigationIcon"
             // Interpolate between the two endpoints. Using the animated parent
@@ -70,6 +71,7 @@ Button {
         }
 
         Label {
+            textFormat: Text.PlainText
             id: title
             objectName: "navigationLabel"
             property ExpansionBlur textTransition: ExpansionBlur {

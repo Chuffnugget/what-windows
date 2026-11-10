@@ -64,6 +64,7 @@ ColumnLayout {
     }
 
     Label {
+        textFormat: Text.PlainText
         text: "What Do You Want to Monitor?"
         color: Theme.ink
     }
@@ -120,6 +121,7 @@ ColumnLayout {
     }
 
     Label {
+        textFormat: Text.PlainText
         text: "Sensor Name"
         color: Theme.ink
     }
@@ -133,6 +135,7 @@ ColumnLayout {
     }
 
     Label {
+        textFormat: Text.PlainText
         visible: target.visible
         text: editor.sourceKind === "process" ? "Executable"
             : editor.sourceKind === "service" ? "Service name"

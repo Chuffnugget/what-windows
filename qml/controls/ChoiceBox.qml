@@ -17,6 +17,7 @@ ComboBox {
     ToolTip.timeout: Theme.toolTipTimeout
 
     contentItem: Text {
+        textFormat: Text.PlainText
         text: choice.displayText
         font: choice.font
         color: choice.enabled ? Theme.ink : Theme.muted
@@ -46,6 +47,7 @@ ComboBox {
         padding: Theme.spaceS
 
         contentItem: Text {
+            textFormat: Text.PlainText
             text: choice.textAt(index)
             font: choice.font
             color: index === choice.currentIndex ? Theme.accent : Theme.ink

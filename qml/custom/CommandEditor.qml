@@ -36,6 +36,7 @@ ColumnLayout {
     }
 
     Label {
+        textFormat: Text.PlainText
         visible: editor.saving
         text: "Name"
         color: Theme.ink
@@ -51,6 +52,7 @@ ColumnLayout {
     }
 
     Label {
+        textFormat: Text.PlainText
         visible: editor.saving
         text: "What Does It Do? (Optional)"
         color: Theme.ink

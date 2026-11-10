@@ -29,6 +29,7 @@ Button {
         implicitHeight: label.implicitHeight
 
         Text {
+            textFormat: Text.PlainText
             id: label
 
             anchors.fill: parent

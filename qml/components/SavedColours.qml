@@ -17,6 +17,7 @@ ColumnLayout {
         Layout.fillWidth: true
 
         Label {
+            textFormat: Text.PlainText
             text: "Favourites"
             color: Theme.ink
             Layout.fillWidth: true
@@ -41,6 +42,7 @@ ColumnLayout {
     }
 
     Label {
+        textFormat: Text.PlainText
         text: "Previously Used Colours"
         color: Theme.ink
     }
@@ -69,6 +71,7 @@ ColumnLayout {
             spacing: 6
 
             Label {
+                textFormat: Text.PlainText
                 text: row.emptyText
                 color: Theme.muted
                 visible: row.colours.length === 0

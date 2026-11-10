@@ -4,9 +4,10 @@ Enable Modules > BEACN in WHAT. Keep the official BEACN app running. Enable
 Home Assistant control separately when you want remote commands. Cloud state
 and control are disabled unless explicitly enabled. The module defaults off.
 
-Native app controls target BEACN 1.4.2.12 with the 6.16.0.0 x64 driver (API 5.16).
+Native app controls target BEACN 1.4.2.19 with the 6.16.0.0 x64 driver (API 5.16).
 The module shows the detected app and driver versions, including unsupported
-installations.
+installations. This replaces the older 1.4.2.12 native bridge; its object and
+callback layouts are not interchangeable with this build.
 
 Unrecognised builds undergo native compatibility checks, followed by live mixer
 checks. Compatible builds can work and show a warning with the result. A changed

@@ -97,6 +97,7 @@ ColumnLayout {
                     spacing: Theme.spaceS
 
                     Text {
+                        textFormat: Text.PlainText
                         text: modelData
                         color: Theme.muted
                         font.pixelSize: Theme.fontSmall
@@ -120,6 +121,7 @@ ColumnLayout {
                     }
 
                     Text {
+                        textFormat: Text.PlainText
                         text: Math.round([editor.draft.r, editor.draft.g, editor.draft.b][index] * 255)
                         color: Theme.ink
                         font.family: "Consolas"
@@ -164,6 +166,7 @@ ColumnLayout {
         spacing: Theme.spaceM
 
         Text {
+            textFormat: Text.PlainText
             text: "Brightness"
             color: Theme.muted
             font.pixelSize: Theme.fontSmall
@@ -188,6 +191,7 @@ ColumnLayout {
         }
 
         Text {
+            textFormat: Text.PlainText
             text: Math.round(Math.max(editor.draft.r, editor.draft.g, editor.draft.b) * 100) + "%"
             color: Theme.ink
             font.family: "Consolas"
@@ -230,6 +234,7 @@ ColumnLayout {
         }
 
         Text {
+            textFormat: Text.PlainText
             text: "Recent"
             height: 28
             verticalAlignment: Text.AlignVCenter
@@ -256,6 +261,7 @@ ColumnLayout {
     }
 
     Text {
+        textFormat: Text.PlainText
         visible: text.length > 0
         text: editor.result
         color: Theme.muted

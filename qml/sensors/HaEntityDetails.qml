@@ -15,6 +15,7 @@ ColumnLayout {
     Component.onCompleted: if (active) controller.requestHaEntity(row)
 
     Label {
+        textFormat: Text.PlainText
         text: "Home Assistant Entity ID"
         color: Theme.muted
         font.pixelSize: Theme.fontCaption
@@ -41,6 +42,7 @@ ColumnLayout {
                 implicitHeight: Math.max(entityText.implicitHeight, copyLabel.implicitHeight)
 
                 Text {
+                    textFormat: Text.PlainText
                     id: entityText
 
                     objectName: "haEntityIdText"
@@ -61,6 +63,7 @@ ColumnLayout {
                     text: "✓ Copied"
                 }
                 Text {
+                    textFormat: Text.PlainText
                     id: copyLabel
 
                     objectName: "haEntityCopyLabel"

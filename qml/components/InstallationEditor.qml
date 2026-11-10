@@ -85,6 +85,7 @@ Dialog {
     }
 
     header: Label {
+        textFormat: Text.PlainText
         text: editor.title
         padding: 20
         color: Theme.ink
@@ -167,6 +168,7 @@ Dialog {
             ColumnLayout {
                 Layout.fillWidth: true
                 Label {
+                    textFormat: Text.PlainText
                     text: "Home Assistant API" + (typeField.currentIndex === 0 ? " - Selected" : " - Inactive")
                     color: Theme.ink
                     font.weight: Font.DemiBold
@@ -190,6 +192,7 @@ Dialog {
                 Layout.fillWidth: true
                 spacing: Theme.spaceM
                 Label {
+                    textFormat: Text.PlainText
                     text: "MQTT" + (typeField.currentIndex === 1 ? " - Selected" : hostField.text.trim() ? " - Configured, Inactive" : " - Not Configured")
                     color: Theme.ink
                     font.weight: Font.DemiBold

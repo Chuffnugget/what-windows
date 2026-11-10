@@ -134,7 +134,10 @@ try {
 
 Use the matching WHAT-<version>-Windows-<architecture>-Setup.exe to install WHAT.
 This folder is the installer payload. Advanced users can run Install.cmd from this
-complete folder instead; it asks before trusting the certificate and installing.
+complete folder instead if the signing certificate is already trusted. For first-install
+certificate trust, use Setup.exe. Advanced manual installations require explicitly
+running Trust-Certificate.ps1 from an administrator PowerShell after verifying its
+certificate and thumbprint; Install.cmd does not elevate scripts.
 Do not open the MSIX directly for a first installation: it skips certificate trust.
 Certificate-chain errors such as 0x800B010A require the trust step. Packaging uses your explicitly
 configured identity. A self-signed certificate is not publicly trusted. The

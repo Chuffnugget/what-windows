@@ -42,6 +42,7 @@ Dialog {
             Layout.topMargin: 24
 
             Label {
+                textFormat: Text.PlainText
                 text: "WHAT"
                 color: Theme.accent
                 font.pixelSize: Theme.fontCaption
@@ -49,6 +50,7 @@ Dialog {
             }
 
             Label {
+                textFormat: Text.PlainText
                 text: glassDialog.title
                 color: Theme.ink
                 font.pixelSize: Theme.fontHeading

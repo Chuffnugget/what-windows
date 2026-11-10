@@ -250,6 +250,7 @@ GlassDialog {
             }
 
             TextArea {
+                textFormat: TextEdit.PlainText
                 id: wallpaperOptions
 
                 visible: wallpaperAdvanced.checked

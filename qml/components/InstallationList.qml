@@ -44,6 +44,7 @@ ColumnLayout {
                 ColumnLayout {
                     Layout.fillWidth: true
                     Label {
+                        textFormat: Text.PlainText
                         text: row.modelData.name
                         color: Theme.ink
                         font.weight: Font.DemiBold
@@ -112,6 +113,7 @@ ColumnLayout {
         enter: null
         exit: null
         contentItem: Label {
+            textFormat: Text.PlainText
             id: removalText
             width: removal.availableWidth
             text: "Delete “" + removal.installationName + "” and revoke its access to this PC? Its Home Assistant entities and history will be kept."
@@ -119,6 +121,7 @@ ColumnLayout {
             wrapMode: Text.WordWrap
         }
         header: Label {
+            textFormat: Text.PlainText
             text: removal.title
             padding: 20
             color: Theme.ink

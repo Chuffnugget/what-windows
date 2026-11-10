@@ -7,6 +7,9 @@ using System.IO.Compression;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using System.Text;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Windows.Forms;
 
 internal static class SetupLayoutTests {
@@ -293,12 +296,61 @@ internal static class SetupLayoutTests {
         }
     }
 
+    static void CheckCertificateHandoff(string directory, string helperPath) {
+        using (var rsa = RSA.Create(2048)) {
+            var request = new CertificateRequest("CN=WHAT", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            using (var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1))) {
+                string helper = "param([string]$CertificateBase64,[string]$ExpectedThumbprint) "
+                    + "$c=[Security.Cryptography.X509Certificates.X509Certificate2]::new([Convert]::FromBase64String($CertificateBase64)); "
+                    + "if($c.Thumbprint -ne $ExpectedThumbprint){exit 5}; [Console]::WriteLine($c.Thumbprint); exit 0";
+                var start = SetupProgram.CertificateTrustStartInfo(certificate.Export(X509ContentType.Cert), helper);
+                if (!Path.IsPathRooted(start.FileName) || start.Verb != "runas" || !start.UseShellExecute
+                    || start.Arguments.Contains(" -File ") || !start.Arguments.Contains(" -EncodedCommand "))
+                    throw new Exception("Certificate elevation must use fixed inline code and an absolute system executable.");
+                // Substitution after constructing the handoff must have no effect.
+                string fake = Path.Combine(directory, "substituted-trust-helper.ps1");
+                File.WriteAllText(fake, "throw 'SUBSTITUTED_HELPER'", Encoding.UTF8);
+                string encoded = start.Arguments.Substring(start.Arguments.LastIndexOf(' ') + 1);
+                string command = Encoding.Unicode.GetString(Convert.FromBase64String(encoded));
+                if (command.Contains("CertificatePath") || command.Contains(fake))
+                    throw new Exception("Certificate elevation must not read mutable helper/certificate paths.");
+                // Execute the harmless validation helper unelevated. Never touch a certificate store.
+                start.UseShellExecute = false; start.Verb = "";
+                start.RedirectStandardOutput = start.RedirectStandardError = true;
+                using (var process = Process.Start(start)) {
+                    var output = process.StandardOutput.ReadToEndAsync();
+                    var error = process.StandardError.ReadToEndAsync();
+                    process.WaitForExit();
+                    if (process.ExitCode != 0 || output.Result.Trim() != certificate.Thumbprint)
+                        throw new Exception("In-memory certificate handoff failed: " + error.Result);
+                }
+                File.Delete(fake);
+                // Exercise the real helper's Bytes parameter set with a certificate
+                // lacking code-signing usage. It must fail before opening a trust store.
+                var rejected = SetupProgram.CertificateTrustStartInfo(
+                    certificate.Export(X509ContentType.Cert), File.ReadAllText(helperPath));
+                rejected.UseShellExecute = false; rejected.Verb = "";
+                rejected.RedirectStandardOutput = rejected.RedirectStandardError = true;
+                using (var process = Process.Start(rejected)) {
+                    var output = process.StandardOutput.ReadToEndAsync();
+                    var error = process.StandardError.ReadToEndAsync();
+                    process.WaitForExit();
+                    if (process.ExitCode == 0 || !error.Result.Contains("Certificate must explicitly allow code signing."))
+                        throw new Exception("Embedded helper did not reject invalid certificate usage: " + error.Result);
+                    output.Wait();
+                }
+            }
+        }
+        Console.WriteLine("PASS: immutable certificate elevation handoff (no elevation or store writes)");
+    }
+
     [STAThread]
     static int Main(string[] args) {
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         if (args.Length == 2 && args[0] == "--shutdown-fixture") return RunShutdownFixture(args[1]);
         try {
+            CheckCertificateHandoff(args[0], args[2]);
             CheckShutdown();
             CheckMetrics(args[1]);
             CheckPackageArchitecture();

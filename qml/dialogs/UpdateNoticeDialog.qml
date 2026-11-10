@@ -67,6 +67,7 @@ GlassDialog {
                 Layout.fillWidth: true
 
                 Label {
+                    textFormat: Text.PlainText
                     text: "WHAT"
                     color: Theme.ink
                     font.pixelSize: Theme.fontHeading
@@ -87,6 +88,7 @@ GlassDialog {
                 border.color: Theme.outline
 
                 Label {
+                    textFormat: Text.PlainText
                     id: channelLabel
 
                     anchors.centerIn: parent
@@ -110,6 +112,7 @@ GlassDialog {
             Layout.fillWidth: true
 
             Label {
+                textFormat: Text.PlainText
                 text: updateNotice.completed ? "Update Complete" : "A new version is ready"
                 color: Theme.ink
                 font.pixelSize: Theme.fontTitle
@@ -153,6 +156,7 @@ GlassDialog {
                     }
 
                     Label {
+                        textFormat: Text.PlainText
                         text: updateNotice.completed ? updateNotice.previousVersion : updateNotice.updater.info.current
                         color: Theme.secondary
                         font.pixelSize: Theme.fontSection
@@ -160,6 +164,7 @@ GlassDialog {
                 }
 
                 Label {
+                    textFormat: Text.PlainText
                     text: "→"
                     color: Theme.muted
                     font.pixelSize: Theme.fontHeading
@@ -176,6 +181,7 @@ GlassDialog {
                     }
 
                     Label {
+                        textFormat: Text.PlainText
                         text: updateNotice.version
                         color: Theme.accent
                         font.pixelSize: Theme.fontSection

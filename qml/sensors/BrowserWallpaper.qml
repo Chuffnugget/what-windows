@@ -191,6 +191,7 @@ ColumnLayout {
     }
 
     TextArea {
+        textFormat: TextEdit.PlainText
         id: options
 
         visible: advanced.checked
@@ -210,6 +211,7 @@ ColumnLayout {
     }
 
     Text {
+        textFormat: Text.PlainText
         id: result
 
         visible: text.length > 0
@@ -220,6 +222,7 @@ ColumnLayout {
     }
 
     Text {
+        textFormat: Text.PlainText
         text: wallpaper.controller.wallpaper.status || ""
         color: Theme.muted
         font.pixelSize: Theme.fontSmall

@@ -17,4 +17,4 @@ struct GlobalCommand {
     char choices[7][128][512];
 };
 
-inline constexpr wchar_t GlobalMessage[] = L"BEACN.WHAT.Global.142";
+inline constexpr wchar_t GlobalMessage[] = L"BEACN.WHAT.Global.14219";

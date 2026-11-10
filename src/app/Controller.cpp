@@ -664,8 +664,9 @@ QString Controller::sourceStatus() const {
         return "HWiNFO disabled - Windows monitoring remains active";
     if (!latest.valid)
         return latest.status.isEmpty() ? QString("Waiting for the first HWiNFO sample") : latest.status;
-    return healthy() ? QString("HWiNFO connected - %1 readings").arg(latest.readings.size())
-                     : "HWiNFO data is stale. Check Sensors and Shared Memory Support in HWiNFO.";
+    return healthy()
+               ? QString("HWiNFO connected - %1 readings").arg(latest.readings.size())
+               : "HWiNFO readings are stale: no new sensor sample is arriving. Check whether Sensors is paused, reopen Sensors or restart HWiNFO.";
 }
 
 QVariantMap Controller::uiInfo() {

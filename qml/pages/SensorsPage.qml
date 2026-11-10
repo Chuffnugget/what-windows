@@ -973,6 +973,7 @@ ColumnLayout {
                         Layout.maximumWidth: Layout.preferredWidth
 
                         Text {
+                            textFormat: Text.PlainText
                             id: readingName
 
                             anchors.fill: parent
@@ -1072,6 +1073,7 @@ ColumnLayout {
                         }
 
                         Text {
+                            textFormat: Text.PlainText
                             id: valueLabel
 
                             anchors.verticalCenter: parent.verticalCenter
@@ -1090,6 +1092,7 @@ ColumnLayout {
                         }
 
                         Text {
+                            textFormat: Text.PlainText
                             id: unitLabel
 
                             anchors.verticalCenter: parent.verticalCenter
@@ -1263,6 +1266,7 @@ ColumnLayout {
                         }
 
                         Text {
+                            textFormat: Text.PlainText
                             text: {
                                 const description = sensorRow.readingReason || sensorRow.modelData.tooltip || "";
                                 return description.split("\n").filter(line => line.trim() !== sensorRow.modelData.name).join("\n");
@@ -1288,6 +1292,7 @@ ColumnLayout {
                         }
 
                         TextEdit {
+                            textFormat: TextEdit.PlainText
                             Layout.fillWidth: true
                             text: sensorRow.modelData.id || ""
                             readOnly: true
@@ -1303,6 +1308,7 @@ ColumnLayout {
             }
 
             Text {
+                textFormat: Text.PlainText
                 objectName: "sensorEmptyMessage"
                 anchors.centerIn: parent
                 visible: sensorList.count === 0 && !sensorsPage.listLoading
@@ -1326,6 +1332,7 @@ ColumnLayout {
             }
 
             Text {
+                textFormat: Text.PlainText
                 text: "Loading Sensors…"
                 color: Theme.muted
                 font.pixelSize: Theme.fontCaption
@@ -1337,12 +1344,14 @@ ColumnLayout {
         Layout.fillWidth: true
 
         Text {
+            textFormat: Text.PlainText
             text: sensorsPage.status.selected + " shared"
             color: Theme.accent
             font.pixelSize: Theme.fontSmall
         }
 
         Text {
+            textFormat: Text.PlainText
             text: "Click a row to reveal its controls"
             color: Theme.muted
             font.pixelSize: Theme.fontSmall
@@ -1352,6 +1361,7 @@ ColumnLayout {
     }
 
     Text {
+        textFormat: Text.PlainText
         objectName: "beacnCommandResult"
         text: controller.beacn.last_command || ""
         visible: controller.beacn.enabled === true && text.length > 0
@@ -1362,6 +1372,7 @@ ColumnLayout {
     }
 
     component Caption: Text {
+        textFormat: Text.PlainText
         color: Theme.muted
         font.pixelSize: Theme.fontBadge
         font.letterSpacing: 0.7

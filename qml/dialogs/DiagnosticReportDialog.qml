@@ -22,6 +22,7 @@ GlassDialog {
         spacing: Theme.spaceM
 
         Label {
+            textFormat: Text.PlainText
             text: "Private values are excluded and common identifiers redacted. Review custom device names before sharing."
             color: Theme.ink
             Layout.fillWidth: true
@@ -29,6 +30,7 @@ GlassDialog {
         }
 
         Label {
+            textFormat: Text.PlainText
             visible: reportDialog.controller.diagnosticReportBusy
             text: "Preparing report…"
             color: Theme.accent
@@ -40,6 +42,7 @@ GlassDialog {
             clip: true
 
             TextArea {
+                textFormat: TextEdit.PlainText
                 objectName: "diagnosticReportText"
                 text: reportDialog.controller.diagnosticReport
                 readOnly: true

@@ -52,8 +52,55 @@ struct RichNotifications::Mailbox {
     RichNotifications *owner = nullptr;
     quint64 generation = 0;
     QString appId;
-    QHash<QString, QJsonObject> pending;
+
+    struct Pending {
+        QJsonObject value;
+        std::shared_ptr<std::atomic_bool> lease;
+    };
+
+    QHash<QString, Pending> pending;
     QJsonArray events;
+    QHash<QString, std::shared_ptr<std::atomic_bool>> eventLeases;
+
+    void prune() {
+        const auto now = QDateTime::currentSecsSinceEpoch();
+        for (const auto &key : pending.keys()) {
+            const auto &entry = pending[key];
+            if (!entry.lease || !entry.lease->load() || entry.value["expires"].toDouble() < now)
+                pending.remove(key);
+        }
+        QJsonArray retained;
+        for (auto value : events) {
+            const auto event = value.toObject();
+            const auto lease = eventLeases.value(event["id"].toString());
+            if (lease && lease->load() && event["created"].toDouble() >= now - 60)
+                retained.append(event);
+            else
+                eventLeases.remove(event["id"].toString());
+        }
+        events = retained;
+    }
+
+    QString remember(const QJsonObject &args, const QString &nonce, const QJsonArray &actions, qint64 expires,
+                     const QString &installation, std::shared_ptr<std::atomic_bool> lease) {
+        QMutexLocker lock(&mutex);
+        prune();
+        if (!permitted || installation.isEmpty() || !lease || !lease->load())
+            return "Notification installation access was revoked";
+        const auto id = args["notification_id"].toString(nonce);
+        for (const auto &key : pending.keys())
+            if (pending[key].value["id"] == id && pending[key].value["_installation"] == installation)
+                pending.remove(key);
+        if (pending.size() >= 32)
+            return "Too many pending interactive notifications";
+        pending.insert(nonce, {{{"id", id},
+                                {"expires", double(expires)},
+                                {"actions", actions},
+                                {"reply", args["reply"].toBool()},
+                                {"_installation", installation}},
+                               lease});
+        return {};
+    }
 
     // Called with the mailbox locked. Destruction clears owner under the same
     // lock; Qt discards an already-queued invocation if the receiver is destroyed.
@@ -67,7 +114,9 @@ struct RichNotifications::Mailbox {
         QMutexLocker lock(&mutex);
         const auto split = argument.indexOf(':');
         const auto nonce = argument.left(split), action = argument.mid(split + 1);
-        const auto entry = pending.value(nonce);
+        prune();
+        const auto pendingEntry = pending.value(nonce);
+        const auto entry = pendingEntry.value;
         const auto now = QDateTime::currentSecsSinceEpoch();
         if (app != appId || split != 32)
             return;
@@ -81,13 +130,18 @@ struct RichNotifications::Mailbox {
         if (action == "OPEN")
             requestOpen(false);
         pending.remove(nonce); // Each displayed notification can produce at most one action.
-        events.append(QJsonObject{{"id", QUuid::createUuid().toString(QUuid::Id128)},
+        const auto eventId = QUuid::createUuid().toString(QUuid::Id128);
+        eventLeases.insert(eventId, pendingEntry.lease);
+        events.append(QJsonObject{{"id", eventId},
+                                  {"_installation", entry["_installation"]},
                                   {"notification_id", entry["id"]},
                                   {"action", action},
                                   {"reply", entry["reply"].toBool() ? reply.left(256) : QString()},
                                   {"created", double(now)}});
-        while (events.size() > 32)
+        while (events.size() > 32) {
+            eventLeases.remove(events.first().toObject()["id"].toString());
             events.removeFirst();
+        }
     }
 };
 
@@ -231,7 +285,8 @@ struct RichNotifications::Native {
         return QUrl::fromLocalFile(path).toString();
     }
 
-    QString send(const QJsonObject &args, const std::function<bool()> &cancelled) {
+    QString send(const QJsonObject &args, const std::function<bool()> &cancelled, const QString &installation,
+                 std::shared_ptr<std::atomic_bool> installationLease) {
         const auto error = initialize();
         if (!error.isEmpty())
             return error;
@@ -274,27 +329,17 @@ struct RichNotifications::Native {
         document.LoadXml(nativeText(payload));
         winrt::Windows::UI::Notifications::ToastNotification toast(document);
         toast.ExpirationTime(winrt::clock::from_time_t(expires));
-        const auto tag = QString::fromLatin1(
-            QCryptographicHash::hash(identifier.toUtf8(), QCryptographicHash::Sha256).toHex().left(16));
+        const auto tag =
+            QString::fromLatin1(QCryptographicHash::hash(installation.toUtf8() + '\n' + identifier.toUtf8(),
+                                                         QCryptographicHash::Sha256)
+                                    .toHex()
+                                    .left(16));
         toast.Tag(nativeText(tag));
         toast.Group(L"WHAT");
-        {
-            QMutexLocker lock(&mailbox->mutex);
-            if (!mailbox->permitted)
-                return "Notifications permission was revoked";
-            for (const auto &key : mailbox->pending.keys()) {
-                const auto value = mailbox->pending.value(key);
-                if (value["id"] == identifier ||
-                    value["expires"].toDouble() < QDateTime::currentSecsSinceEpoch())
-                    mailbox->pending.remove(key);
-            }
-            if (mailbox->pending.size() >= 32)
-                return "Too many pending interactive notifications";
-            mailbox->pending.insert(nonce, {{"id", identifier},
-                                            {"expires", double(expires)},
-                                            {"actions", actionIds},
-                                            {"reply", args["reply"].toBool()}});
-        }
+        const auto pendingError =
+            mailbox->remember(args, nonce, actionIds, expires, installation, installationLease);
+        if (!pendingError.isEmpty())
+            return pendingError;
         try {
             notifier.Show(toast);
         } catch (...) {
@@ -356,9 +401,7 @@ RichNotifications::RichNotifications(bool testMode, QObject *parent)
         QJsonArray current;
         {
             QMutexLocker lock(&mailbox->mutex);
-            while (!mailbox->events.isEmpty() && mailbox->events.first().toObject()["created"].toDouble() <
-                                                     QDateTime::currentSecsSinceEpoch() - 60)
-                mailbox->events.removeFirst();
+            mailbox->prune();
             current = mailbox->events;
         }
         if (events != current) {
@@ -390,6 +433,7 @@ void RichNotifications::setPermitted(bool enabled) {
     if (!enabled) {
         mailbox->pending.clear();
         mailbox->events = {};
+        mailbox->eventLeases.clear();
         events = {};
     }
     if (enabled && !testing)
@@ -408,10 +452,26 @@ void RichNotifications::prepareActivation() {
 }
 
 QJsonObject RichNotifications::state() const {
-    return {{"version", 1}, {"events", events}};
+    QMutexLocker lock(&mailbox->mutex);
+    mailbox->prune();
+    return {{"version", 1}, {"events", mailbox->events}};
 }
 
-void RichNotifications::send(QJsonObject args, QString request, std::shared_ptr<std::atomic_bool> lease) {
+void RichNotifications::activateForTesting(const QString &installation, const QString &id,
+                                           const QString &action, const QString &reply) {
+    Q_ASSERT(testing);
+    QString nonce;
+    {
+        QMutexLocker lock(&mailbox->mutex);
+        for (auto it = mailbox->pending.cbegin(); it != mailbox->pending.cend(); ++it)
+            if (it->value["_installation"] == installation && it->value["id"] == id)
+                nonce = it.key();
+    }
+    mailbox->activate(mailbox->appId, nonce + ':' + action, reply);
+}
+
+void RichNotifications::send(QJsonObject args, QString request, std::shared_ptr<std::atomic_bool> lease,
+                             QString installation, std::shared_ptr<std::atomic_bool> installationLease) {
     auto error = validate(args);
     quint64 generation;
     {
@@ -431,15 +491,25 @@ void RichNotifications::send(QJsonObject args, QString request, std::shared_ptr<
             emit completed(request, false, "Windows could not display the notification");
     };
     worker.submit(
-        [state = native, args, lease, generation, testMode = testing] {
+        [state = native, args, lease, installation, installationLease, generation, testMode = testing] {
             const auto cancelled = [=] {
                 QMutexLocker lock(&state->mailbox->mutex);
                 return !state->mailbox->permitted || state->mailbox->generation != generation || !lease ||
-                       !lease->load();
+                       !lease->load() || installation.isEmpty() || !installationLease ||
+                       !installationLease->load();
             };
             if (cancelled())
                 return QString("Notification cancelled");
-            return testMode ? QString() : state->send(args, cancelled);
+            if (testMode) {
+                QJsonArray actions{"OPEN"};
+                for (auto action : args["actions"].toArray())
+                    if (!action.toObject().contains("url"))
+                        actions.append(action.toObject()["id"]);
+                return state->mailbox->remember(args, QUuid::createUuid().toString(QUuid::Id128), actions,
+                                                QDateTime::currentSecsSinceEpoch() + args["ttl"].toInt(600),
+                                                installation, installationLease);
+            }
+            return state->send(args, cancelled, installation, installationLease);
         },
         [this, request](const QString &error) {
             emit completed(request, error.isEmpty(), error.isEmpty() ? "Submitted to Windows" : error);

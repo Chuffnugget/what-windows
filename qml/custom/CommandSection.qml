@@ -58,12 +58,14 @@ Column {
                 }
             }
             Label {
+                textFormat: Text.PlainText
                 text: section.title
                 color: Theme.ink
                 font.pixelSize: Theme.fontBody
                 font.weight: Font.DemiBold
             }
             Label {
+                textFormat: Text.PlainText
                 Layout.fillWidth: true
                 Layout.rightMargin: 12
                 text: section.summary

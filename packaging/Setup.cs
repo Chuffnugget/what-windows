@@ -8,6 +8,7 @@ using System.Xml;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -172,6 +173,38 @@ internal static class SetupProgram
             UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true,
             RedirectStandardError = true, WorkingDirectory = directory
         };
+    }
+    internal static ProcessStartInfo CertificateTrustStartInfo(byte[] certificateBytes, string helper) {
+        using (var certificate = new X509Certificate2(certificateBytes)) {
+            if (certificate.Subject != "CN=WHAT") throw new InvalidDataException("Unexpected signing publisher.");
+            // Both helper and certificate come from verified assembly resources.
+            // No code or certificate path is read after the UAC handoff.
+            string command = "& {" + helper + "\n} -CertificateBase64 '"
+                + Convert.ToBase64String(certificate.RawData) + "' -ExpectedThumbprint '" + certificate.Thumbprint + "'";
+            var info = PowerShellStartInfo(command, Environment.GetFolderPath(Environment.SpecialFolder.System));
+            info.UseShellExecute = true;
+            info.Verb = "runas";
+            info.RedirectStandardOutput = info.RedirectStandardError = false;
+            info.WindowStyle = ProcessWindowStyle.Hidden;
+            return info;
+        }
+    }
+    internal static void TrustEmbeddedCertificate() {
+        byte[] bytes;
+        using (var input = Resource("WHAT.cer")) using (var buffer = new MemoryStream()) {
+            input.CopyTo(buffer); bytes = buffer.ToArray();
+        }
+        using (var certificate = new X509Certificate2(bytes)) using (var store = new X509Store(StoreName.TrustedPeople, StoreLocation.LocalMachine)) {
+            store.Open(OpenFlags.ReadOnly);
+            if (store.Certificates.Find(X509FindType.FindByThumbprint, certificate.Thumbprint, false).Count > 0) return;
+        }
+        string helper;
+        using (var reader = new StreamReader(Resource("Trust-Certificate.ps1"))) helper = reader.ReadToEnd();
+        using (var process = Process.Start(CertificateTrustStartInfo(bytes, helper))) {
+            if (process == null) throw new IOException("Could not request certificate trust.");
+            process.WaitForExit();
+            if (process.ExitCode != 0) throw new IOException("Certificate trust was not granted; installation cancelled.");
+        }
     }
     [STAThread]
     private static int Main(string[] args) {
@@ -512,6 +545,7 @@ internal sealed class SetupWindow : Form
     }
     string InstallPayload(bool inspectOnly) {
         SetupProgram.VerifyPayloads();
+        if (!inspectOnly) SetupProgram.TrustEmbeddedCertificate();
         string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WHAT", "installer", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder); logPath = Path.Combine(folder, "install.log");
         try {

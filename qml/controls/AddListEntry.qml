@@ -26,6 +26,7 @@ Rectangle {
         ColumnLayout {
             Layout.fillWidth: true
             Label {
+                textFormat: Text.PlainText
                 visible: entry.title.length > 0
                 Layout.fillWidth: true
                 text: entry.title

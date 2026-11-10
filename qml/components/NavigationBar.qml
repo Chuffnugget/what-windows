@@ -196,6 +196,7 @@ Rectangle {
                 visible: sidebar.textReveal > 0
 
                 Label {
+                    textFormat: Text.PlainText
                     objectName: "sidebarBrandTitle"
                     Layout.fillWidth: true
                     Layout.topMargin: 6
@@ -388,6 +389,7 @@ Rectangle {
                     }
 
                     Label {
+                        textFormat: Text.PlainText
                         text: sidebar.pcName
                         color: Theme.ink
                         Layout.fillWidth: true

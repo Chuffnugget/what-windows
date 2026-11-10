@@ -1,4 +1,9 @@
-param([Parameter(Mandatory=$true)][string]$CertificatePath,[Parameter(Mandatory=$true)][string]$ExpectedThumbprint)
+[CmdletBinding(DefaultParameterSetName='Path')]
+param(
+    [Parameter(Mandatory=$true,ParameterSetName='Path')][string]$CertificatePath,
+    [Parameter(Mandatory=$true,ParameterSetName='Bytes')][string]$CertificateBase64,
+    [Parameter(Mandatory=$true)][string]$ExpectedThumbprint
+)
 $ErrorActionPreference = 'Stop'
 function Assert-CodeSigningCertificate($Certificate) {
     $now = [DateTime]::UtcNow
@@ -13,10 +18,16 @@ function Assert-CodeSigningCertificate($Certificate) {
 
 
 try {
-    $certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($CertificatePath)
+    $bytes = if ($PSCmdlet.ParameterSetName -eq 'Bytes') { [Convert]::FromBase64String($CertificateBase64) } else { [IO.File]::ReadAllBytes($CertificatePath) }
+    $certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new([byte[]]$bytes)
     if ($certificate.Thumbprint -ne $ExpectedThumbprint) { throw 'Certificate changed after confirmation.' }
     Assert-CodeSigningCertificate $certificate
-    Import-Certificate -FilePath $CertificatePath -CertStoreLocation 'Cert:\LocalMachine\TrustedPeople' | Out-Null
+    # Import the exact object validated above. Never reopen a mutable certificate path.
+    $store = [Security.Cryptography.X509Certificates.X509Store]::new('TrustedPeople', 'LocalMachine')
+    try {
+        $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+        $store.Add($certificate)
+    } finally { $store.Dispose() }
     if (!(Test-Path -LiteralPath ('Cert:\LocalMachine\TrustedPeople\' + $certificate.Thumbprint))) { throw 'Certificate import did not persist in Local Machine / Trusted People.' }
     exit 0
 } catch { Write-Error $_; exit 1 }

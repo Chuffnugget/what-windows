@@ -19,6 +19,7 @@ RowLayout {
     }
 
     Label {
+        textFormat: Text.PlainText
         text: controller.info.running ? "Service running" : "Service stopped"
         color: Theme.ink
         Layout.rightMargin: 10

@@ -128,12 +128,14 @@ Rectangle {
                         spacing: 2
 
                         Label {
+                            textFormat: Text.PlainText
                             text: section.title
                             color: section.available ? Theme.ink : Theme.muted
                             font.bold: true
                         }
 
                         Label {
+                            textFormat: Text.PlainText
                             text: section.available ? section.detail : section.unavailableReason
                             color: section.available ? Theme.muted : Theme.warning
                             font.pixelSize: Theme.fontSmall

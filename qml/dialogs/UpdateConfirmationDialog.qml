@@ -18,6 +18,7 @@ GlassDialog {
     standardButtons: Dialog.Ok | Dialog.Cancel
 
     Label {
+        textFormat: Text.PlainText
         width: parent.width
         wrapMode: Text.WordWrap
         text: "Install WHAT " + updateDialog.confirmedVersion + " and restart?\nHome Assistant will briefly disconnect." + (updateDialog.updater.info.downgrade

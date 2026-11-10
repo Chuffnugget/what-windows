@@ -25,6 +25,7 @@ Button {
     }
 
     contentItem: Text {
+        textFormat: Text.PlainText
         text: control.text
         color: !control.enabled ? Theme.muted : control.primary ? Theme.accentText : Theme.ink
         font.pixelSize: control.compact ? Theme.fontCaption : Theme.fontBody

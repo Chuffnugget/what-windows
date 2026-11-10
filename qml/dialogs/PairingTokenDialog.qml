@@ -28,6 +28,7 @@ GlassDialog {
     standardButtons: Dialog.Ok | Dialog.Cancel
 
     Label {
+        textFormat: Text.PlainText
         text: rotateDialog.allInstallations
             ? "Every installation will receive a new pairing token and disconnect.\nCopy the new pairing details for each installation and reconfigure its existing WHAT entry in Home Assistant."
             : "Only " + rotateDialog.installationName + " will receive a new token and disconnect. Other installations keep their tokens.\n\nCopy the new pairing details, then use Reconfigure on the existing WHAT entry in that Home Assistant. Keep the entry to retain its devices, entities and settings. The PC identity and certificate stay the same."

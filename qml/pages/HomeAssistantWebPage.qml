@@ -22,6 +22,7 @@ Item {
         visible: !page.web.enabled || !page.web.url || page.web.overlayVisible || page.web.desktopActive
 
         Label {
+            textFormat: Text.PlainText
             Layout.fillWidth: true
             text: page.web.overlayVisible ? (page.web.overlayMode === "pip" ? "Your Dashboard Is in Picture-in-Picture" : "Your Dashboard Is Open Fullscreen") : page.web.desktopActive ? "Your Dashboard Is on the Desktop" : "Home Assistant Web"
             color: Theme.ink

@@ -95,6 +95,7 @@ ColumnLayout {
             }
 
             TextArea {
+                textFormat: TextEdit.PlainText
                 text: controller.specs
                 readOnly: true
                 selectByMouse: true

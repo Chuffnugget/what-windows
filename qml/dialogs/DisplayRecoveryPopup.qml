@@ -28,6 +28,7 @@ Popup {
 
     contentItem: RowLayout {
         Label {
+            textFormat: Text.PlainText
             text: displayRecovery.controller.displays.status
             color: Theme.ink
             wrapMode: Text.WordWrap

@@ -30,10 +30,10 @@ template <class T> static T at(std::uintptr_t p) {
 extern "C" __declspec(dllexport) LRESULT CALLBACK VolumeHook(int code, WPARAM wp, LPARAM lp) {
     if (code >= 0) {
         auto msg = reinterpret_cast<CWPSTRUCT *>(lp);
-        static const UINT volumeMessage = RegisterWindowMessageW(L"BEACN.WHAT.Volume.142");
+        static const UINT volumeMessage = RegisterWindowMessageW(L"BEACN.WHAT.Volume.14219");
         if (msg && volumeMessage && msg->message == volumeMessage) {
             wchar_t name[100];
-            swprintf(name, 100, L"Local\\BEACN.WHAT.Volume142.%lu", GetCurrentProcessId());
+            swprintf(name, 100, L"Local\\BEACN.WHAT.Volume14219.%lu", GetCurrentProcessId());
             HANDLE mapping = OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, name);
             if (mapping) {
                 auto cmd = static_cast<Command *>(
@@ -42,9 +42,9 @@ extern "C" __declspec(dllexport) LRESULT CALLBACK VolumeHook(int code, WPARAM wp
                     InterlockedCompareExchange(&cmd->state, 1, 0) == 0) {
                     const auto base = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
                     const auto obj = static_cast<std::uintptr_t>(cmd->object);
-                    const auto data = at<std::uintptr_t>(obj + 0x150);
-                    const auto slider = at<std::uintptr_t>(obj + 0x148);
-                    const auto listenerTable = at<std::uintptr_t>(obj + 0x108);
+                    const auto data = at<std::uintptr_t>(obj + BeacnLayout::FaderData);
+                    const auto slider = at<std::uintptr_t>(obj + BeacnLayout::FaderSlider);
+                    const auto listenerTable = at<std::uintptr_t>(obj + BeacnLayout::Listener);
                     char label[128]{};
                     const size_t labelSize = strnlen(cmd->sourceName, sizeof(cmd->sourceName));
                     const unsigned char handlerSignature[] = {0xf3, 0x0f, 0x11, 0x4c, 0x24,
@@ -71,7 +71,7 @@ extern "C" __declspec(dllexport) LRESULT CALLBACK VolumeHook(int code, WPARAM wp
                                 at<std::uintptr_t>(listenerTable + 8) == base + BeacnLayout::PersonalMuteChanged &&
                                 at<std::uintptr_t>(listenerTable + 16) == base + BeacnLayout::AudienceMuteChanged;
                     if (cmd->mode >= 5) {
-                        const auto controls = at<std::uintptr_t>(obj + 0x1e8);
+                        const auto controls = at<std::uintptr_t>(obj + BeacnLayout::FaderKnobListener);
                         valid = valid && at<std::uintptr_t>(controls + 8) == base + BeacnLayout::KnobButtonChanged &&
                                 at<std::uintptr_t>(base + BeacnLayout::FaderTable + 0x1a0) == base + BeacnLayout::FaderMuteStateChanged &&
                                 at<unsigned char>(data + 0x58) <= 1 && at<unsigned char>(data + 0x59) <= 1;
@@ -84,8 +84,8 @@ extern "C" __declspec(dllexport) LRESULT CALLBACK VolumeHook(int code, WPARAM wp
                             using SetDisplay = void (*)(void *, float);
                             using Change = void (*)(void *, float, void *);
                             reinterpret_cast<SetDisplay>(base + BeacnLayout::SetFaderDisplay)((void *)slider, cmd->target);
-                            reinterpret_cast<Change>(base + BeacnLayout::FaderChanged)((void *)(obj + 0x108), cmd->target,
-                                                                      (void *)slider);
+                            reinterpret_cast<Change>(base + BeacnLayout::FaderChanged)(
+                                (void *)(obj + BeacnLayout::Listener), cmd->target, (void *)slider);
                         }
                         cmd->observed = at<float>(data + 0x10);
                         if (cmd->mode >= 5) {
@@ -93,8 +93,8 @@ extern "C" __declspec(dllexport) LRESULT CALLBACK VolumeHook(int code, WPARAM wp
                             // BEACN chooses the affected mixes from its own mute configuration.
                             using SetControl = void (*)(void *, bool, int);
                             const int selector = cmd->mode == 6 ? 1 : 0;
-                            reinterpret_cast<SetControl>(base + BeacnLayout::KnobButtonChanged)((void *)(obj + 0x1e8),
-                                                                          cmd->target != 0, selector);
+                            reinterpret_cast<SetControl>(base + BeacnLayout::KnobButtonChanged)(
+                                (void *)(obj + BeacnLayout::FaderKnobListener), cmd->target != 0, selector);
                             cmd->observed = at<unsigned char>(data + 0x58 + selector);
                             const bool matches = cmd->observed == cmd->target;
                             cmd->error = matches ? 0 : 2;
@@ -103,9 +103,11 @@ extern "C" __declspec(dllexport) LRESULT CALLBACK VolumeHook(int code, WPARAM wp
                             using SetMute = void (*)(void *, bool);
                             const bool mute = cmd->target != 0;
                             if (cmd->mode == 2 || cmd->mode == 4)
-                                reinterpret_cast<SetMute>(base + BeacnLayout::PersonalMuteChanged)((void *)(obj + 0x108), mute);
+                                reinterpret_cast<SetMute>(base + BeacnLayout::PersonalMuteChanged)(
+                                    (void *)(obj + BeacnLayout::Listener), mute);
                             if (cmd->mode == 3 || cmd->mode == 4)
-                                reinterpret_cast<SetMute>(base + BeacnLayout::AudienceMuteChanged)((void *)(obj + 0x108), mute);
+                                reinterpret_cast<SetMute>(base + BeacnLayout::AudienceMuteChanged)(
+                                    (void *)(obj + BeacnLayout::Listener), mute);
                             const auto hp = at<unsigned char>(data + 0x18),
                                        aud = at<unsigned char>(data + 0x19);
                             const auto expected = static_cast<unsigned char>(mute);

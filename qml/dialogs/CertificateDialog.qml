@@ -22,6 +22,7 @@ GlassDialog {
         spacing: Theme.spaceM
 
         Label {
+            textFormat: Text.PlainText
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             text: certificateDialog.renewed
@@ -31,6 +32,7 @@ GlassDialog {
         }
 
         Label {
+            textFormat: Text.PlainText
             Layout.fillWidth: true
             visible: certificateDialog.failure.length > 0
             text: certificateDialog.failure

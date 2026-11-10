@@ -17,6 +17,7 @@ Item {
         spacing: 5
 
         Label {
+            textFormat: Text.PlainText
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             elide: Text.ElideRight

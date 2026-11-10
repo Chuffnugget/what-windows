@@ -159,6 +159,7 @@ Item {
             opacity: 0.95
 
             Label {
+                textFormat: Text.PlainText
                 anchors.fill: parent
                 anchors.margins: 12
                 verticalAlignment: Text.AlignVCenter

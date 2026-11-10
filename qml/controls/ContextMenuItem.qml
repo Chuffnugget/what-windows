@@ -9,6 +9,7 @@ MenuItem {
     rightPadding: Theme.spaceM
 
     contentItem: Text {
+        textFormat: Text.PlainText
         text: item.text
         color: item.enabled ? Theme.ink : Theme.muted
         font.pixelSize: Theme.fontBody

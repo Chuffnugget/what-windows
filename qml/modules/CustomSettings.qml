@@ -15,6 +15,7 @@ ModuleCard {
     signal commandsRequested
 
     Label {
+        textFormat: Text.PlainText
         text: "Share Readings with Home Assistant"
         color: Theme.ink
     }

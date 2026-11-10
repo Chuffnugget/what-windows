@@ -501,6 +501,7 @@ DragScrollView {
                 }
 
                 Label {
+                    textFormat: Text.PlainText
                     text: "Run in the system tray when WHAT opens."
                     color: Theme.muted
                     font.pixelSize: Theme.fontCaption
@@ -535,6 +536,7 @@ DragScrollView {
 
                 RowLayout {
                     Label {
+                        textFormat: Text.PlainText
                         text: "Theme"
                         color: Theme.ink
                     }

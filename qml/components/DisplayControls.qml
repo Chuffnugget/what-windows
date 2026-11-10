@@ -18,6 +18,7 @@ ColumnLayout {
         Layout.fillWidth: true
 
         Label {
+            textFormat: Text.PlainText
             text: "DISPLAY LAYOUT"
             color: Theme.muted
             font.pixelSize: Theme.fontLabel
@@ -62,6 +63,7 @@ ColumnLayout {
     }
 
     Label {
+        textFormat: Text.PlainText
         Layout.fillWidth: true
         text: root.state.status || ""
         color: Theme.muted
@@ -91,6 +93,7 @@ ColumnLayout {
             spacing: Theme.spaceM
 
             Label {
+                textFormat: Text.PlainText
                 text: "Saved Display Layouts"
                 color: Theme.ink
                 font.pixelSize: Theme.fontHeading
@@ -98,6 +101,7 @@ ColumnLayout {
             }
 
             Label {
+                textFormat: Text.PlainText
                 Layout.fillWidth: true
                 text: "Arrange your monitors here or in Windows Display settings, then save the current arrangement. Home Assistant can restore these layouts by name."
                 color: Theme.muted
@@ -144,6 +148,7 @@ ColumnLayout {
                     height: 48
 
                     Label {
+                        textFormat: Text.PlainText
                         text: modelData.name + (modelData.available ? "" : " - display missing")
                         color: Theme.ink
                         Layout.fillWidth: true
@@ -173,6 +178,7 @@ ColumnLayout {
             }
 
             Label {
+                textFormat: Text.PlainText
                 Layout.fillWidth: true
                 text: root.state.status || ""
                 color: Theme.accent
@@ -180,6 +186,7 @@ ColumnLayout {
             }
 
             Label {
+                textFormat: Text.PlainText
                 Layout.fillWidth: true
                 text: "Layouts preserve desktop membership, mirror groups, primary desktop, positions and source sizes. Windows chooses compatible output timings; exact refresh rate, HDR and scaling are not saved. Moving a cable to another port can change monitor identity."
                 color: Theme.muted

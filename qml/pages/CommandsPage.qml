@@ -48,6 +48,7 @@ ColumnLayout {
         Layout.rightMargin: Theme.scrollGutter
 
         Label {
+            textFormat: Text.PlainText
             Layout.fillWidth: true
             text: commands.count > 0
                 ? commands.count + (commands.count === 1 ? " Saved Command" : " Saved Commands")
@@ -124,6 +125,7 @@ ColumnLayout {
                 height: 36
                 spacing: Theme.spaceM
                 Label {
+                    textFormat: Text.PlainText
                     Layout.leftMargin: 36
                     Layout.fillWidth: true
                     text: "COMMAND"
@@ -132,6 +134,7 @@ ColumnLayout {
                     font.letterSpacing: 1
                 }
                 Label {
+                    textFormat: Text.PlainText
                     visible: commands.width > 1000
                     Layout.preferredWidth: 90
                     text: "SHELL"
@@ -140,6 +143,7 @@ ColumnLayout {
                     font.letterSpacing: 1
                 }
                 Label {
+                    textFormat: Text.PlainText
                     Layout.preferredWidth: 200
                     text: "HOME ASSISTANT ACCESS"
                     color: Theme.muted
@@ -147,6 +151,7 @@ ColumnLayout {
                     font.letterSpacing: 1
                 }
                 Label {
+                    textFormat: Text.PlainText
                     Layout.preferredWidth: 100
                     text: "LAST RUN"
                     color: Theme.muted
@@ -154,6 +159,7 @@ ColumnLayout {
                     font.letterSpacing: 1
                 }
                 Label {
+                    textFormat: Text.PlainText
                     visible: commands.width > 760
                     Layout.preferredWidth: 96
                     text: "STATUS"

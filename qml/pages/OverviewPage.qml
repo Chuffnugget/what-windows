@@ -208,6 +208,7 @@ DragScrollView {
                         spacing: Theme.spaceXs
 
                         Label {
+                            textFormat: Text.PlainText
                             TapHandler {
                                 onTapped: overviewScroll.connectionRequested()
                             }
@@ -304,6 +305,7 @@ DragScrollView {
                         }
 
                         Label {
+                            textFormat: Text.PlainText
                             text: overviewScroll.status.selected + " / " + overviewScroll.status.total + " sensors shared"
                             color: Theme.ink
                             font.weight: Font.DemiBold
@@ -335,6 +337,7 @@ DragScrollView {
                             opacity: connection.connected ? 1 : 0.45
                         }
                         Label {
+                            textFormat: Text.PlainText
                             text: modelData.name
                             color: Theme.ink
                             Layout.preferredWidth: 180
@@ -375,6 +378,7 @@ DragScrollView {
             Layout.topMargin: 6
 
             Label {
+                textFormat: Text.PlainText
                 text: "Modules"
                 color: Theme.ink
                 font.pixelSize: 17
@@ -478,6 +482,7 @@ DragScrollView {
                                 spacing: 3
 
                                 Label {
+                                    textFormat: Text.PlainText
                                     text: modelData.label
                                     color: Theme.ink
                                     font.weight: Font.DemiBold
@@ -610,6 +615,7 @@ DragScrollView {
                     }
 
                     Label {
+                        textFormat: Text.PlainText
                         text: "Pair This PC"
                         color: Theme.ink
                         font.weight: Font.DemiBold

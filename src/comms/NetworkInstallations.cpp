@@ -16,6 +16,11 @@ QString NetworkService::installationForSession(const QString &session) const {
     return {};
 }
 
+std::shared_ptr<std::atomic_bool> NetworkService::installationLease(const QString &session) const {
+    QMutexLocker lock(&worker->control->mutex);
+    return worker->control->installationLeases.value(session);
+}
+
 // Installation workers share the network thread and immutable sensor snapshots.
 // Each owns its sockets, delivery baselines, retry timers and command sessions.
 void NetworkService::setInstallations(QJsonArray definitions) {
@@ -305,7 +310,23 @@ void NetworkWorker::acceptInstallation(QWebSocket *socket) {
 QJsonObject NetworkWorker::installationSnapshot(QJsonObject value) const {
     // Do not turn an absent startup snapshot into a metadata-only frame.
     // Authentication may finish before the first sensor snapshot arrives.
-    if (installationId.isEmpty() || value.isEmpty())
+    if (value.isEmpty())
+        return value;
+    // Replies are private to the installation that displayed the notification.
+    // This runs before route filtering, baselines and serialization on API and MQTT.
+    if (value.contains("notifications")) {
+        auto notifications = value["notifications"].toObject();
+        QJsonArray replies;
+        if (!installationId.isEmpty() && installationOptions["controls"].toBool(true))
+            for (auto entry : notifications["events"].toArray()) {
+                auto reply = entry.toObject();
+                if (reply.take("_installation").toString() == installationId)
+                    replies.append(reply);
+            }
+        notifications["events"] = replies;
+        value["notifications"] = notifications;
+    }
+    if (installationId.isEmpty())
         return value;
     value["connection_options"] =
         QJsonObject{{"remote_enabled", !installationOptions["endpoint"].toString().isEmpty()},

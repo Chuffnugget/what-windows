@@ -79,7 +79,8 @@ void Controller::handleNotificationCommand(const QString &session, const QJsonOb
             return;
         }
         notificationClock.restart();
-        richNotifications->send(args, session + '\n' + command["id"].toString(), lease);
+        richNotifications->send(args, session + '\n' + command["id"].toString(), lease,
+                                server.installationForSession(session), server.installationLease(session));
         return;
     }
     const auto error = sendDesktopNotification(command["args"].toObject());

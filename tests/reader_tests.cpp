@@ -69,6 +69,21 @@ int main(int argc, char **argv) {
     require(parsed.valid && parsed.readings.size() == 1, "valid fixture rejected");
     require(parsed.readings[0].toObject()["id"] == "0000002a_00000002_00000063", "unstable identifier");
     require(parsed.readings[0].toObject()["value"].toDouble() == 62.5, "wrong value offset");
+    auto pending = bytes;
+    qToLittleEndian(quint64(0), pending.data() + 12);
+    const auto waiting = HwinfoReader::parse(pending);
+    require(!waiting.valid && waiting.status.contains("waiting for the first sensor sample"),
+            "connected reader without an initial sample must explain the wait");
+    auto empty = bytes;
+    put(empty, 28, 0);
+    put(empty, 40, 0);
+    const auto noSensors = HwinfoReader::parse(empty);
+    require(!noSensors.valid && noSensors.status.contains("connected, but no sensors"),
+            "empty sensor catalogue incorrectly reported healthy");
+    put(empty, 28, 1);
+    const auto noReadings = HwinfoReader::parse(empty);
+    require(!noReadings.valid && noReadings.status.contains("connected, but no readings"),
+            "groups without readings incorrectly reported healthy");
     auto extended = fixture();
     const auto sensor = extended.mid(48, 264), reading = extended.mid(312, 316);
     extended.resize(48 + 392 + 460);
@@ -115,15 +130,74 @@ int main(int argc, char **argv) {
     });
     locked.get_future().wait();
     const auto busy = cached.read(true);
+    const auto busyWithoutSample = HwinfoReader().read(true);
     release.set_value();
     holder.join();
     require(busy.valid && busy.pollTime == first.pollTime && busy.readings == first.readings,
             "mutex contention discarded or refreshed the cached sample");
+    require(!busyWithoutSample.valid && busyWithoutSample.status.contains("shared memory is busy"),
+            "initial mutex contention must be distinguished from missing shared memory");
+    require(busy.details.contains("retaining the last sample"),
+            "cached read must explain contention in diagnostics");
     memcpy(view, "DEAD", 4);
-    require(!cached.read(true).valid, "stopped producer incorrectly served cached readings");
+    // A stopped publisher can clear its offsets. Still report stopped, not malformed data.
+    memset(view + 20, 0xff, 24);
+    const auto stopped = cached.read(true);
+    require(!stopped.valid && stopped.status.contains("stopped publishing") &&
+                stopped.details.contains("DEAD"),
+            "stopped producer was misdiagnosed or served cached readings");
+    memcpy(view, bytes.constData(), bytes.size());
+    require(cached.read(true).valid, "reader did not recover after publishing resumed");
+    CloseHandle(mutex);
+    const auto noLock = cached.read(true);
+    require(!noLock.valid && noLock.status.contains("reading lock is unavailable") &&
+                noLock.details.contains("OpenMutex(Local\\WHAT_TEST_MUTEX): Windows error 2"),
+            "missing reading lock must preserve its specific failure and Windows code");
+    mutex = CreateMutexW(nullptr, FALSE, L"Local\\WHAT_TEST_MUTEX");
+    require(mutex, "could not recreate test mutex");
+    std::promise<void> relocked, rerelease;
+    auto rereleased = rerelease.get_future();
+    std::thread newHolder([&] {
+        WaitForSingleObject(mutex, INFINITE);
+        relocked.set_value();
+        rereleased.wait();
+        ReleaseMutex(mutex);
+    });
+    relocked.get_future().wait();
+    const auto reconnectBusy = cached.read(true);
+    rerelease.set_value();
+    newHolder.join();
+    require(!reconnectBusy.valid && reconnectBusy.status.contains("shared memory is busy"),
+            "reconnection resurrected a cached sample from a failed connection");
+    require(cached.read(true).valid, "reader did not recover after lock contention");
+    put(empty, 28, 0);
+    memcpy(view, empty.constData(), empty.size());
+    require(!cached.read(true).valid && cached.read(true).status.contains("no sensors"),
+            "empty live catalogue did not clear a previous healthy sample");
     UnmapViewOfFile(view);
     CloseHandle(mutex);
     CloseHandle(mapping);
+    const auto missing = cached.read(true);
+    require(!missing.valid && missing.status.contains("Cannot connect") &&
+                missing.details.contains("OpenFileMapping(Local\\WHAT_TEST_SM2): Windows error 2"),
+            "missing mapping must explain connection failure and retain the real mapping name/code");
+
+    // Deny new readers of this test-only mapping without changing any real app or user permissions.
+    SECURITY_DESCRIPTOR descriptor{};
+    ACL denyAll{};
+    require(InitializeSecurityDescriptor(&descriptor, SECURITY_DESCRIPTOR_REVISION) &&
+                InitializeAcl(&denyAll, sizeof(denyAll), ACL_REVISION) &&
+                SetSecurityDescriptorDacl(&descriptor, TRUE, &denyAll, FALSE),
+            "cannot create test-only access-denied descriptor");
+    SECURITY_ATTRIBUTES security{sizeof(security), &descriptor, FALSE};
+    mapping = CreateFileMappingW(INVALID_HANDLE_VALUE, &security, PAGE_READWRITE, 0, DWORD(bytes.size()),
+                                 L"Local\\WHAT_TEST_SM2");
+    require(mapping, "cannot create test-only protected mapping");
+    const auto denied = cached.read(true);
+    CloseHandle(mapping);
+    require(!denied.valid && denied.status.contains("Windows denied access") &&
+                denied.details.contains("Windows error 5"),
+            "access denied was misdiagnosed as a missing mapping");
 
     auto rename = bytes;
     memcpy(rename.data() + 452, "Renamed", 8);
@@ -142,9 +216,13 @@ int main(int argc, char **argv) {
     require(!HwinfoReader::parse(invalid).valid, "inactive signature accepted");
     invalid = bytes;
     put(invalid, 4, 999);
-    require(!HwinfoReader::parse(invalid).valid, "unknown version accepted");
+    const auto unsupported = HwinfoReader::parse(invalid);
+    require(!unsupported.valid && unsupported.status.contains("unsupported shared-memory version") &&
+                unsupported.details.contains("999"),
+            "unknown version must explain compatibility failure");
     double nan = std::numeric_limits<double>::quiet_NaN();
     memcpy(bytes.data() + 596, &nan, 8);
     require(HwinfoReader::parse(bytes).readings[0].toObject()["value"].isNull(), "NaN was not null");
-    std::cout << "Shared-memory parser, Unicode and mutex contention checks passed\n";
+    std::cout
+        << "Shared-memory parser, Unicode, failure diagnosis, recovery and mutex contention checks passed\n";
 }

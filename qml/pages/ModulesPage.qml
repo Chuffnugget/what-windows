@@ -211,6 +211,7 @@ ColumnLayout {
                     spacing: Theme.spaceM
 
                     Text {
+                        textFormat: Text.PlainText
                         text: "+"
                         color: Theme.accent
                         font.pixelSize: Theme.fontTitle
@@ -223,6 +224,7 @@ ColumnLayout {
                         spacing: 3
 
                         Label {
+                            textFormat: Text.PlainText
                             text: "Want WHAT to Support Another API?"
                             color: Theme.ink
                             font.pixelSize: Theme.fontSection

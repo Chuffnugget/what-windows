@@ -38,6 +38,7 @@ CheckBox {
     }
 
     contentItem: Text {
+        textFormat: Text.PlainText
         text: c.text
         leftPadding: 20 + Theme.spaceS
         verticalAlignment: Text.AlignVCenter

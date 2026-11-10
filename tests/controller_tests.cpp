@@ -593,8 +593,23 @@ private slots:
         for (int i = 0; i < 3; ++i)
             for (const auto &message : received[i])
                 QVERIFY(message["type"] == "hello" || message["type"] == "ui_probe");
+        frame["notifications"] = QJsonObject{
+            {"version", 1},
+            {"events", QJsonArray{QJsonObject{{"id", "private-event"},
+                                              {"_installation", QString(32, 'a')},
+                                              {"notification_id", "fixture"},
+                                              {"action", "reply"},
+                                              {"reply", "private-reply"},
+                                              {"created", double(QDateTime::currentSecsSinceEpoch())}}}}};
         service.setSnapshot(frame);
         for (int i = 0; i < 3; ++i) QTRY_VERIFY_WITH_TIMEOUT(has(i, "snapshot"), 6000);
+        for (int i = 0; i < 3; ++i)
+            for (const auto &message : received[i])
+                if (message["type"] == "snapshot") {
+                    const auto events = message["notifications"].toObject()["events"].toArray();
+                    QCOMPARE(events.size(), i == 0 ? 1 : 0);
+                    QVERIFY(!QJsonDocument(message).toJson().contains("_installation"));
+                }
         for (const auto &item : received[2])
             if (item["type"] == "snapshot")
                 QVERIFY(!item["controls"].toObject()["permissions"].toObject()["input"].toBool());
@@ -2158,6 +2173,79 @@ private slots:
         QVERIFY(SensorTrayManager::readImageFile(path).contains("error"));
     }
 
+    void wmiArgumentsRemainData() {
+        for (const auto quote : {QChar(0x27), QChar(0x2018), QChar(0x2019), QChar(0x201a), QChar(0x201b)}) {
+            const QString payload = QString("x%1; throw 'INJECTED'; #\n$() ` \" ").arg(quote);
+            const QJsonObject d{{"namespace", payload}, {"query", payload}, {"property", payload}};
+            const auto script = QString("$ProgressPreference = 'SilentlyContinue'; "
+                                        "function Get-CimInstance { param($Namespace,$Query) "
+                                        "[pscustomobject]@{ $Query = $Namespace } }; ") +
+                                CustomSources::wmiCommand(d);
+            const auto result = ShellCommand::run(
+                {{"shell", "powershell"}, {"command", script}, {"timeout", 10}}, [] { return false; });
+            QCOMPARE(result["exit_code"].toInt(-1), 0);
+            QVERIFY2(result["stderr"].toString().isEmpty(), qPrintable(result["stderr"].toString()));
+            const auto decoded =
+                QJsonDocument::fromJson(("[" + result["stdout"].toString().trimmed() + "]").toUtf8()).array();
+            QCOMPARE(decoded.size(), 1);
+            QCOMPARE(decoded[0].toString(), payload);
+        }
+    }
+
+    void sensorTextDoesNotLoadMarkup() {
+        QTcpServer endpoint;
+        QVERIFY(endpoint.listen(QHostAddress::LocalHost, 0));
+        QSignalSpy requests(&endpoint, &QTcpServer::newConnection);
+        const QString text =
+            QString("<img src=\"http://127.0.0.1:%1/probe.png\"> title").arg(endpoint.serverPort());
+        QTemporaryDir dir;
+        Controller local(dir.path(), true);
+        local.stopService();
+        local.sampleTimer.stop();
+        local.setBrowserVisible(false);
+        QTRY_VERIFY(!local.browserJob.isRunning() && !local.browserSearchJob.isRunning());
+        local.browserModel.replace({QVariantMap{{"id", "untrusted-text"},
+                                                {"name", text},
+                                                {"kind", "text"},
+                                                {"value", text},
+                                                {"unit", ""},
+                                                {"available", true},
+                                                {"source", "windows"},
+                                                {"header", false}}});
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{"controller", QVariant::fromValue(&local)}});
+        engine.loadData(R"(
+            import QtQuick
+            import "qrc:/qml/pages"
+            Window { id: root; required property var controller; width: 1200; height: 800
+                SensorsPage { anchors.fill: parent; controller: root.controller }
+            }
+        )");
+        QVERIFY(!engine.rootObjects().isEmpty());
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        window->show();
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *list = window->findChild<QQuickItem *>("sensorList");
+        QVERIFY(list);
+        QTRY_COMPARE(list->property("count").toInt(), 1);
+        int rendered = 0;
+        const auto verify = [&] {
+            rendered = 0;
+            const auto visit = [&](const auto &self, QQuickItem *item) -> void {
+                if (item->property("text").toString() == text && item->property("textFormat").isValid()) {
+                    QCOMPARE(item->property("textFormat").toInt(), 0); // QQuickText::PlainText
+                    ++rendered;
+                }
+                for (auto *child : item->childItems())
+                    self(self, child);
+            };
+            visit(visit, window->contentItem());
+        };
+        QTRY_VERIFY((verify(), rendered >= 2));
+        QTest::qWait(150);
+        QCOMPARE(requests.count(), 0);
+    }
+
     void customSourcesAndStableIdentity() {
         CustomModule module(true);
         QJsonObject output{{"id", module.newId()}, {"name", "Free Space"}, {"path", "disk.free"},
@@ -2628,13 +2716,94 @@ private slots:
         args["ttl"] = 60;
         RichNotifications notifications(true);
         QSignalSpy notified(&notifications, &RichNotifications::completed);
-        notifications.send(args, "denied", std::make_shared<std::atomic_bool>(true));
+        notifications.send(args, "denied", std::make_shared<std::atomic_bool>(true), "A",
+                           std::make_shared<std::atomic_bool>(true));
         QCOMPARE(notified.size(), 1);
         QVERIFY(!notified.takeFirst()[1].toBool());
         notifications.setPermitted(true);
-        notifications.send(args, "accepted", std::make_shared<std::atomic_bool>(true));
+        notifications.send(args, "accepted", std::make_shared<std::atomic_bool>(true), "A",
+                           std::make_shared<std::atomic_bool>(true));
         QTRY_COMPARE(notified.size(), 1);
         QVERIFY(notified.takeFirst()[1].toBool());
+    }
+
+    void notificationRepliesStayWithInstallation() {
+        RichNotifications notifications(true);
+        notifications.setPermitted(true);
+        auto a = std::make_shared<std::atomic_bool>(true), b = std::make_shared<std::atomic_bool>(true);
+        QSignalSpy completed(&notifications, &RichNotifications::completed);
+        const QJsonObject args{{"title", "Fixture"},
+                               {"message", "Synthetic reply"},
+                               {"notification_id", "same-id"},
+                               {"reply", true},
+                               {"actions", QJsonArray{QJsonObject{{"id", "confirm"}, {"title", "Confirm"}}}}};
+        for (const auto &id : {QString("A"), QString("B")}) {
+            notifications.send(args, id, std::make_shared<std::atomic_bool>(true), id, id == "A" ? a : b);
+            QTRY_COMPARE(completed.count(), 1);
+            QVERIFY(completed.takeFirst()[1].toBool());
+        }
+        notifications.activateForTesting("A", "same-id", "confirm", "Only A may see this");
+        notifications.activateForTesting("B", "same-id", "confirm", "Only B may see this");
+        QCOMPARE(notifications.state()["events"].toArray().size(), 2);
+        notifications.activateForTesting("A", "same-id", "confirm", "replay");
+        QCOMPARE(notifications.state()["events"].toArray().size(), 2);
+
+        const auto state = notifications.state();
+        for (bool cloud : {false, true})
+            for (bool controls : {false, true}) {
+                NetworkWorker target;
+                target.installationId = "A";
+                target.installationOptions = {{"controls", controls}};
+                PublishingPolicy policy;
+                auto frame = policy.apply(
+                    target.installationSnapshot({{"notifications", state}, {"sensors", QJsonArray{}}}), cloud,
+                    0);
+                const auto events = frame["notifications"].toObject()["events"].toArray();
+                QCOMPARE(events.size(), controls ? 1 : 0);
+                if (controls) {
+                    QCOMPARE(events[0].toObject()["reply"].toString(), QString("Only A may see this"));
+                    QVERIFY(!events[0].toObject().contains("_installation"));
+                }
+                QVERIFY(!QJsonDocument(frame).toJson().contains("Only B"));
+                target.installationId = "unknown";
+                QVERIFY(target.installationSnapshot({{"notifications", state}})["notifications"]
+                            .toObject()["events"]
+                            .toArray()
+                            .isEmpty());
+            }
+        *a = false;
+        auto remaining = notifications.state()["events"].toArray();
+        QCOMPARE(remaining.size(), 1);
+        QCOMPARE(remaining[0].toObject()["_installation"].toString(), QString("B"));
+        notifications.send(args, "pending", std::make_shared<std::atomic_bool>(true), "B", b);
+        QTRY_COMPARE(completed.count(), 1);
+        QVERIFY(completed.takeFirst()[1].toBool());
+        *b = false; // Deletion, disabling, permission revocation and token replacement invalidate this guard.
+        notifications.activateForTesting("B", "same-id", "confirm", "revoked");
+        QVERIFY(notifications.state()["events"].toArray().isEmpty());
+        notifications.send(args, "ownerless", std::make_shared<std::atomic_bool>(true), {}, b);
+        QTRY_COMPARE(completed.count(), 1);
+        QVERIFY(!completed.takeFirst()[1].toBool());
+    }
+
+    void outboundRepliesHaveByteBudget() {
+        auto *peer = new WirePeer(false, this);
+        qint64 queued = 0;
+        int sends = 0;
+        peer->pendingWrites = [&] { return queued; };
+        peer->send = [&](const QString &value) {
+            ++sends;
+            queued += value.toUtf8().size();
+            return queued;
+        };
+        QVERIFY(peer->sendTextMessage("result") >= 0);
+        queued = WirePeer::MaximumQueuedBytes - 20;
+        QVERIFY(peer->sendTextMessage("reply") >= 0);
+        QCOMPARE(sends, 2);
+        QVERIFY(peer->sendTextMessage("another reply") < 0);
+        QCOMPARE(sends, 2);
+        QVERIFY(peer->closed);
+        peer->deleteLater();
     }
 
     void nativeSpeechAtZeroVolume() {
@@ -2971,7 +3140,7 @@ private slots:
             {"status", "Connected"},
             {"exe_path", "C:/Program Files/BEACN/BEACN App/BEACN.exe"},
             {"dll_path", "C:/Program Files/BEACN/Mic Device Driver/x64/BEACNUsbAudioapi_x64.dll"},
-            {"installation", QVariantMap{{"status", "Verified installed BEACN 1.4.2.12 and x64 driver API"}}},
+            {"installation", QVariantMap{{"status", "Verified installed BEACN 1.4.2.19 and x64 driver API"}}},
             {"global", QVariantMap{{"autoResetDefaults", true}}},
             {"controls", QVariantList{QVariantMap{{"id", "volume_2"},
                                                   {"name", "Game linked volume"},
@@ -3068,6 +3237,22 @@ private slots:
         QVERIFY2(bindingWarnings.isEmpty(), qPrintable(bindingWarnings.join('\n')));
     }
 
+    void beacnNativeChoicesLayout() {
+        // The vendor switched to release STL: three pointers, no iterator proxy.
+        QVERIFY(BeacnLayout::Choices{}.valid());
+        const auto valid = [](quintptr begin, quintptr end, quintptr capacity) {
+            return BeacnLayout::Choices{begin, end, capacity}.valid();
+        };
+        QVERIFY(valid(0x1000, 0x1010, 0x1020));
+        QVERIFY(valid(0x1000, 0x1400, 0x1400)); // 128 choices fit the IPC reply.
+        QVERIFY(!valid(0, 8, 8));
+        QVERIFY(!valid(0x1001, 0x1011, 0x1021));
+        QVERIFY(!valid(0x1000, 0xff8, 0x1020));
+        QVERIFY(!valid(0x1000, 0x1010, 0x1008));
+        QVERIFY(!valid(0x1000, 0x1001, 0x1010));
+        QVERIFY(!valid(0x1000, 0x1408, 0x1408));
+    }
+
     void beacnCachedFaderRejectsChangedObjects() {
         QByteArray object(0x160, 0), data(0x60, 0), label("Game");
         const quintptr base = 0x10000000;
@@ -3075,7 +3260,7 @@ private slots:
             std::memcpy(bytes.data() + offset, &value, sizeof(value));
         };
         put(object, 0, quint64(base + BeacnLayout::FaderTable));
-        put(object, 0x150, quint64(reinterpret_cast<quintptr>(data.data())));
+        put(object, BeacnLayout::FaderData, quint64(reinterpret_cast<quintptr>(data.data())));
         put(data, 0, quint64(reinterpret_cast<quintptr>(label.constData())));
         put(data, 9, quint8(1));
         put(data, 0x10, 0.35f);
@@ -3103,7 +3288,7 @@ private slots:
         put(object, 0, quint64(base + BeacnLayout::FaderTable + 8));
         QVERIFY(!valid());
         put(object, 0, quint64(base + BeacnLayout::FaderTable));
-        put(object, 0x150, quint64(1));
+        put(object, BeacnLayout::FaderData, quint64(1));
         QVERIFY(!valid()); // Freed/unreadable model cannot be dispatched.
     }
 
@@ -7240,7 +7425,7 @@ private slots:
         const QString secret(64, 'a');
         QJsonObject input{
             {"private", QJsonArray{secret, "private-user"}},
-            {"versions", QJsonObject{{"BEACN app", "1.4.2.12"},
+            {"versions", QJsonObject{{"BEACN app", "1.4.2.19"},
                                      {"iCUE app", "PRIVATE-VERSION"},
                                      {"unexpected field", "192.168.4.7"}}},
             {"details",
@@ -7259,7 +7444,7 @@ private slots:
              {secret, QString("private-user"), QString("192.168.4.7"), QString("private.example"),
               QString("VALUE-MUST-NOT-LEAK"), QString("PRIVATE-COMMAND")})
             QVERIFY2(!text.contains(blocked), qPrintable(blocked));
-        QVERIFY(text.contains("BEACN app: 1.4.2.12"));
+        QVERIFY(text.contains("BEACN app: 1.4.2.19"));
         QVERIFY(!text.contains("PRIVATE-VERSION"));
         QVERIFY(!text.contains("unexpected field"));
         QVERIFY(text.contains("GPU fixture"));
@@ -13532,9 +13717,19 @@ private slots:
         c->initialAge = 3600;
         QVERIFY(!find("hw_fixture")["available"].toBool());
         QVERIFY(find("hw_fixture")["unavailable_reason"].toString().contains("stale"));
+        QVERIFY(c->sourceStatus().contains("no new sensor sample"));
+        QCOMPARE(c->moduleIssues()["hwinfo"].toString(), c->sourceStatus());
         QVERIFY(c->diagnostics().contains("Available: 0"));
         c->initialAge = 0;
         QVERIFY(find("hw_fixture")["available"].toBool());
+        // Reader diagnoses reach both pages' common warning model and Diagnostics.
+        c->latest.valid = false;
+        c->latest.status = "HWiNFO shared memory is connected, but no readings are published.";
+        c->latest.details = "Fixture: one sensor group, zero readings";
+        QCOMPARE(c->sourceStatus(), c->latest.status);
+        QCOMPARE(c->moduleIssues()["hwinfo"].toString(), c->latest.status);
+        QVERIFY(c->diagnostics().contains(c->latest.details));
+        QVERIFY(!find("hw_fixture")["available"].toBool());
         QVERIFY(c->startService());
     }
 
@@ -14960,7 +15155,7 @@ void ControllerTests::beacnFileVerificationExplainsFailure() {
     QVERIFY(beacnFileVersion(app).isEmpty());
     QVERIFY(files["status"].toString().contains("BEACN app is not supported"));
     QVERIFY(files["status"].toString().contains("BEACN driver API is not supported"));
-    QVERIFY(files["status"].toString().contains("1.4.2.12"));
+    QVERIFY(files["status"].toString().contains("1.4.2.19"));
     QVERIFY(!files["status"].toString().contains("was not found"));
     QVERIFY(!files["appSha256"].toString().isEmpty());
     QVERIFY(!files["driverSha256"].toString().isEmpty());
@@ -15008,7 +15203,7 @@ void ControllerTests::webReadinessAndShellWarningColours() {
                     signal changed()
                     property var info: ({moduleIssues: {}})
                     property var beacn: ({enabled: true, ready: false, status: 'Unsupported app',
-                        installation: {appVersion: '1.4.2.12', driverVersion: '6.16.0.0'}})
+                        installation: {appVersion: '1.4.2.19', driverVersion: '6.16.0.0'}})
                 }
                 collapsed: false
             }
@@ -15034,7 +15229,7 @@ void ControllerTests::webReadinessAndShellWarningColours() {
     QCOMPARE(label->property("text").toString(), badge->property("text").toString());
     auto *versions = window->findChild<QObject *>("beacnVersions");
     QVERIFY(versions);
-    QVERIFY(versions->property("text").toString().contains("1.4.2.12"));
+    QVERIFY(versions->property("text").toString().contains("1.4.2.19"));
     QVERIFY(versions->property("text").toString().contains("6.16.0.0"));
     QVERIFY(QMetaObject::invokeMethod(window, "failWeb"));
     QCOMPARE(window->property("webColour").value<QColor>(), window->property("warning").value<QColor>());

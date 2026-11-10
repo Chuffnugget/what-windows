@@ -94,6 +94,7 @@ Rectangle {
                 spacing: 3
 
                 Label {
+                    textFormat: Text.PlainText
                     text: section.title
                     color: Theme.ink
                     font.pixelSize: Theme.fontSection

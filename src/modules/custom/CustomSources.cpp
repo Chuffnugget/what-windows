@@ -25,7 +25,9 @@ bool identifier(const QJsonValue &value) {
 }
 
 QString quotePowerShell(QString value) {
-    return "'" + value.replace("'", "''") + "'";
+    // Encode data, not PowerShell syntax: smart apostrophes also terminate PS literals.
+    return "([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" +
+           QString::fromLatin1(value.toUtf8().toBase64()) + "')))";
 }
 
 QJsonValue field(QJsonValue value, const QString &path) {
@@ -150,10 +152,7 @@ QJsonValue collect(const QJsonObject &d, const std::function<bool()> &cancelled,
 
     QString command = d["command"].toString();
     if (source == "wmi")
-        command = "$ErrorActionPreference='Stop'; Get-CimInstance -Namespace " +
-                  quotePowerShell(d["namespace"].toString("root/cimv2")) + " -Query " +
-                  quotePowerShell(d["query"].toString()) + " | Select-Object -ExpandProperty " +
-                  quotePowerShell(d["property"].toString()) + " | ConvertTo-Json -Compress -Depth 6";
+        command = CustomSources::wmiCommand(d);
     const auto result =
         ShellCommand::run({{"shell", source == "wmi" ? "powershell" : d["shell"].toString("powershell")},
                            {"command", command},
@@ -316,4 +315,11 @@ QJsonArray CustomSources::readings(const QJsonObject &d, const QJsonObject &resu
                                 {"available", available}});
     }
     return rows;
+}
+
+QString CustomSources::wmiCommand(const QJsonObject &d) {
+    return "$ErrorActionPreference='Stop'; Get-CimInstance -Namespace " +
+           quotePowerShell(d["namespace"].toString("root/cimv2")) + " -Query " +
+           quotePowerShell(d["query"].toString()) + " | Select-Object -ExpandProperty " +
+           quotePowerShell(d["property"].toString()) + " | ConvertTo-Json -Compress -Depth 6";
 }

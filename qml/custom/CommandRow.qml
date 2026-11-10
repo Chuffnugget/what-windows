@@ -121,6 +121,7 @@ Rectangle {
             }
         }
         Label {
+            textFormat: Text.PlainText
             visible: row.showShell
             Layout.preferredWidth: 90
             text: ({powershell: "PowerShell", pwsh: "PowerShell 7", cmd: "CMD", wsl: "WSL"})[
@@ -139,6 +140,7 @@ Rectangle {
             runHelp: row.accessHelp
         }
         Label {
+            textFormat: Text.PlainText
             objectName: "commandLastRun_" + row.command.id
             Layout.preferredWidth: 100
             text: row.runAge
@@ -151,6 +153,7 @@ Rectangle {
             HoverHandler { id: runTimeHover }
         }
         Label {
+            textFormat: Text.PlainText
             visible: row.showStatus
             Layout.preferredWidth: 96
             text: row.status

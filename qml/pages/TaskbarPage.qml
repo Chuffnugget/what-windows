@@ -38,6 +38,7 @@ ColumnLayout {
     }
 
     Label {
+        textFormat: Text.PlainText
         text: "Add readings beside the clock or as separate app icons. You can also customise WHAT's own app and system tray icons."
         color: Theme.muted
         Layout.fillWidth: true
@@ -46,6 +47,7 @@ ColumnLayout {
     }
 
     Label {
+        textFormat: Text.PlainText
         visible: text.length > 0
         text: manager.error || manager.appIcons.error
         color: Theme.error
@@ -68,6 +70,7 @@ ColumnLayout {
         Layout.rightMargin: Theme.scrollGutter
 
         Label {
+            textFormat: Text.PlainText
             text: "Your Icons"
             color: Theme.ink
             font.pixelSize: 18
@@ -180,6 +183,7 @@ ColumnLayout {
             }
 
             Label {
+                textFormat: Text.PlainText
                 text: picker.mode === "edit"
                     ? "Choose one reading for this icon. Sharing with Home Assistant is not required."
                     : "Select several sensors to add them together. Sharing with Home Assistant is not required."
@@ -283,6 +287,7 @@ ColumnLayout {
                         }
 
                         Label {
+                            textFormat: Text.PlainText
                             text: sensorRow.modelData.name
                             color: sensorRow.added ? Theme.muted : Theme.ink
                             font.weight: sensorRow.modelData.header ? Font.DemiBold : Font.Normal
@@ -291,6 +296,7 @@ ColumnLayout {
                         }
 
                         Label {
+                            textFormat: Text.PlainText
                             text: sensorRow.modelData.header
                                 ? ""
                                 : sensorRow.added
@@ -307,6 +313,7 @@ ColumnLayout {
                 }
 
                 Label {
+                    textFormat: Text.PlainText
                     anchors.centerIn: parent
                     visible: tree.count === 0 || manager.pickerBusy
                     text: manager.pickerBusy ? "Loading sensors…" : "No matching sensors"
@@ -316,6 +323,7 @@ ColumnLayout {
 
             RowLayout {
                 Label {
+                    textFormat: Text.PlainText
                     text: picker.selectedCount + " selected · " + picker.spaces + " spaces available"
                     color: Theme.muted
                     Layout.fillWidth: true
@@ -542,6 +550,7 @@ ColumnLayout {
                                 }
 
                                 Label {
+                                    textFormat: Text.PlainText
                                     visible: !!entry.reading.error
                                     text: entry.reading.error || ""
                                     color: Theme.error
@@ -668,6 +677,7 @@ ColumnLayout {
     }
 
     Label {
+        textFormat: Text.PlainText
         text: (manager.entries.length - 1) + " / 64 extra system tray icons · " + (manager.appIcons.entries.length - 1) + " / 32 extra app icons. App icons run while WHAT is open. Clicking one opens this page without a separate sensor window. Remove an icon here to stop it. Windows may put system tray icons in the tray overflow."
         color: Theme.muted
         Layout.fillWidth: true

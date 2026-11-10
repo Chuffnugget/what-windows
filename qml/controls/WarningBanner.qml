@@ -53,6 +53,7 @@ Rectangle {
             spacing: 5
 
             Label {
+                textFormat: Text.PlainText
                 text: banner.title
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap

@@ -17,6 +17,7 @@ Dialog {
     modal: true
     title: "Custom Sensors"
     header: Label {
+        textFormat: Text.PlainText
         text: library.title
         color: Theme.ink
         font.pixelSize: Theme.fontHeading
@@ -90,6 +91,7 @@ Dialog {
                 }
             }
             Label {
+                textFormat: Text.PlainText
                 anchors.centerIn: parent
                 visible: definitions.count === 0
                 text: "No custom sensors yet"
@@ -107,6 +109,7 @@ Dialog {
         width: Math.min(480, parent.width - 40)
         title: "Remove Sensor Definition?"
         header: Label {
+            textFormat: Text.PlainText
             text: removal.title
             color: Theme.ink
             font.pixelSize: Theme.fontHeading

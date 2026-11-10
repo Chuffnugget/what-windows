@@ -35,6 +35,34 @@ Custom labels can contain personal text that the redaction rules do not recognis
 Review the report before sharing it. The live diagnostics view and terminal output
 contain more detail; use the prepared report for bug reports.
 
+## HWiNFO connection problems
+
+Overview and Modules > HWiNFO show the specific reader failure. Diagnostics keeps
+the underlying operation, Windows error code and shared-memory header details.
+
+| Message | What to check |
+| --- | --- |
+| No running HWiNFO process detected | Start HWiNFO and its sensor monitoring. |
+| HWiNFO running, shared memory unavailable | Open Sensors and enable Shared Memory Support. A running summary window alone is insufficient. |
+| Windows denied access | Check that WHAT and HWiNFO use the same Windows account and compatible permission levels. |
+| Shared memory found, reading lock unavailable | HWiNFO may be starting or stopping. Restart it if the message persists. |
+| Shared memory busy | HWiNFO is updating its data. WHAT retries automatically and retains a previous sample until it becomes stale. |
+| Waiting for the first sample | The mapping exists, but HWiNFO has not published a sample yet. |
+| Connected, but no sensors or readings published | Open Sensors and check monitoring is enabled. An empty catalogue is not reported as healthy. |
+| Stopped publishing | Reopen Sensors and check Shared Memory Support. This does not prove that a licence limit expired. |
+| Stale readings | No new sample is arriving. Resume sensor polling, reopen Sensors or restart HWiNFO. |
+| Unsupported format or invalid data | Restart HWiNFO and check for WHAT/HWiNFO updates. Diagnostics contains the format or bounds failure. |
+
+An absent mapping cannot reliably distinguish Sensors not being started from
+Shared Memory Support being disabled. WHAT reports the observed state and both
+checks. Sensor monitoring can remain minimised, as described in the
+[HWiNFO troubleshooting guidance](https://www.hwinfo.com/forum/threads/shared-memory.2171/).
+The [free-edition sharing limit](https://www.hwinfo.com/licenses/) is another possible
+cause of sharing stopping; WHAT does not assume it is the cause.
+
+Process detection runs on the HWiNFO worker, at most once every five seconds while
+the mapping is absent. It does not add process scans to healthy sensor polling.
+
 ## Local logging
 
 Open **Diagnostics > Logging and Crash Reports**, then enable

@@ -25,6 +25,7 @@ ColumnLayout {
     }
 
     Label {
+        textFormat: Text.PlainText
         visible: preview.result.ok !== undefined
         text: "Last Test: " + (preview.result.ok ? "Completed" : "Failed") + " in " + (
                   preview.result.duration_ms || 0) + " ms"

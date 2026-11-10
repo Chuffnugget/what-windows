@@ -124,6 +124,7 @@ ColumnLayout {
             }
 
             Label {
+                textFormat: Text.PlainText
                 text: pairing.hideAddress
                     ? "•••.•••.•••.•••"
                     : (pairing.status.addresses || "No active IPv4 address")
@@ -143,6 +144,7 @@ ColumnLayout {
             }
 
             Label {
+                textFormat: Text.PlainText
                 text: pairing.hideAddress ? "•••••" : pairing.status.port
                 color: Theme.ink
             }

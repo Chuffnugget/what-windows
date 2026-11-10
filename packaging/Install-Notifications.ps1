@@ -55,18 +55,15 @@ if (!$signature.SignerCertificate -or $signature.SignerCertificate.Thumbprint -n
 if ($signature.Status -notin @('Valid','NotTrusted','UnknownError')) { throw ('Package signature is invalid: ' + $signature.Status) }
 Write-Host 'Install WHAT by Chuffnugget (including optional Windows notification access).'
 Write-Host ('Signing certificate subject: ' + $certificate.Subject)
-Write-Host 'It trusts the included signing certificate in Local Machine / Trusted People.'
-Write-Host 'Windows may request administrator approval for that certificate step.'
+Write-Host 'The signing certificate must already be trusted in Local Machine / Trusted People.'
+Write-Host 'Use Setup.exe for first-time certificate trust with administrator approval.'
 Write-Host ('Certificate SHA-1 thumbprint: ' + $certificate.Thumbprint)
 Write-Host 'Quit WHAT first. Your existing profile is retained.'
 if (!$FromSetup -and (Read-Host 'Type INSTALL to continue') -cne 'INSTALL') { return }
 if (!(Test-Path -LiteralPath ('Cert:\LocalMachine\TrustedPeople\' + $certificate.Thumbprint))) {
-    $trustScript = Join-Path $PSScriptRoot 'Trust-Certificate.ps1'
-    $helper = Start-Process -FilePath 'powershell.exe' -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $trustScript + '"'),'-CertificatePath',('"' + $certificatePath + '"'),'-ExpectedThumbprint',$certificate.Thumbprint)
-    if ($helper.ExitCode -ne 0) { throw 'Certificate trust was not granted; package installation cancelled.' }
-}
-if (!(Test-Path -LiteralPath ('Cert:\LocalMachine\TrustedPeople\' + $certificate.Thumbprint))) {
-    throw 'The certificate was not found in Local Machine / Trusted People after the trust step. Installation cancelled.'
+    # Only Setup's embedded, in-memory code requests elevation. Extracted scripts
+    # must never launch privileged code from this user-writable directory.
+    throw 'The signing certificate is not trusted. Run WHAT Setup.exe, or explicitly run Trust-Certificate.ps1 from an administrator PowerShell after verifying the certificate thumbprint.'
 }
 $signature = Get-AuthenticodeSignature -LiteralPath $packagePath
 if ($signature.Status -ne 'Valid' -or !$signature.SignerCertificate -or $signature.SignerCertificate.Thumbprint -ne $certificate.Thumbprint) { throw 'Package signature could not be verified after certificate trust. Installation cancelled.' }

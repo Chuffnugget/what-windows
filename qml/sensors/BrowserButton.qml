@@ -18,6 +18,7 @@ AbstractButton {
     ToolTip.timeout: Theme.toolTipTimeout
 
     contentItem: Text {
+        textFormat: Text.PlainText
         id: label
 
         text: button.text

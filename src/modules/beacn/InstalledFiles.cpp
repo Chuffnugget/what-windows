@@ -12,8 +12,8 @@
 #include <tlhelp32.h>
 #endif
 namespace {
-const QByteArray appHash("5a25d53f418fcfe613e89422151fdc426668977245f69565240f44d7dfc6aee7");
-const QByteArray driverHash("d0851c4508cc7aa48e112594c49ef3771652766bad8440f5ecc269c491504e7f");
+const QByteArray appHash("4abd23a68d8ac92efb0fe097f6de18ec213ee84132f15ccb03db7ece152dcd89");
+const QByteArray driverHash("8ec66d7b14e50822638971672675c7e754f32bd9ee5445553df64ff69307b98f");
 
 bool compatibleAppLayout(const QString &path, QString *reason) {
     const auto fail = [reason](const QString &message) {
@@ -68,14 +68,14 @@ bool compatibleAppLayout(const QString &path, QString *reason) {
     // Resource/signing changes can be compatible; changed executable code needs
     // a new bridge. Include all read-only data because native callbacks can
     // follow tables beyond the object that WHAT validates directly.
-    bytes = imageBytes(0x1000, 0x1589600);
+    bytes = imageBytes(0x1000, 0xbc9000);
     if (QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex() !=
-        "efa399ae10d8c37b49c8f00d9675faab098f91dfa571e51371410ee853d2fa16")
-        return fail("Native code differs from the validated 1.4.2.12 interface.");
-    bytes = imageBytes(0x158b000, 0x228ba00);
+        "1d9d6e128ec327d3d2d0defe5f345826c310b118a309ff6ba2e1ca7521cb64aa")
+        return fail("Native code differs from the validated 1.4.2.19 interface.");
+    bytes = imageBytes(0xbca000, 0x1e83000);
     if (QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex() !=
-        "9624f6e26ed085051e1339b9fe885e6f012b149f673dbfb8a47d868778f1f06d")
-        return fail("Native data tables differ from the validated 1.4.2.12 interface.");
+        "ad9c81ec5fcc38d6265e986a408e5da22bf0be7d8a6ecaa5f66be317112339b2")
+        return fail("Native data tables differ from the validated 1.4.2.19 interface.");
     return true;
 #else
     return fail("The BEACN native interface requires Windows.");
@@ -251,7 +251,7 @@ QVariantMap discoverInstalledFiles(QString appPath, QString driverPath, bool sea
     describe(driver, "BEACN driver API");
     if (!app["valid"].toBool() && !app["sha256"].toString().isEmpty())
         problems.append("Compatibility check failed: " + compatibilityError +
-                        " Supported interface: BEACN 1.4.2.12. Update WHAT for this build; "
+                        " Supported interface: BEACN 1.4.2.19. Update WHAT for this build; "
                         "driver readings remain independent of app controls.");
     return {{"appPath", app["path"]},
             {"driverPath", driver["path"]},

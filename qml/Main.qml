@@ -258,6 +258,7 @@ ApplicationWindow {
             }
 
             Label {
+                textFormat: Text.PlainText
                 text: "WHAT"
                 color: window.active ? window.ink : window.muted
                 font.pixelSize: Theme.fontCaption
@@ -267,6 +268,7 @@ ApplicationWindow {
             }
 
             Label {
+                textFormat: Text.PlainText
                 text: "Windows Home Assistant Toolkit"
                 color: window.muted
                 font.pixelSize: Theme.fontSmall
@@ -933,6 +935,7 @@ ApplicationWindow {
                     }
 
                     Label {
+                        textFormat: Text.PlainText
                         objectName: "developerCreditFooter"
                         text: "Developed by Chuffnugget"
                         color: creditHover.hovered ? Theme.accentHover : Theme.accent
@@ -1007,6 +1010,7 @@ ApplicationWindow {
         z: 10
 
         Label {
+            textFormat: Text.PlainText
             id: toastText
 
             anchors.fill: parent

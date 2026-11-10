@@ -12,5 +12,5 @@ $arguments = @('/nologo', '/target:exe', '/platform:x64', '/codepage:65001', '/m
     "/resource:$root\assets\app-icon.png,app.png", "$root\packaging\Setup.cs", "$PSScriptRoot\SetupLayoutTests.cs")
 & $compiler @arguments
 if ($LASTEXITCODE -ne 0) { throw 'Installer layout test compilation failed.' }
-& $executable $OutputDirectory "$root/qml/controls/Theme.qml"
+& $executable $OutputDirectory "$root/qml/controls/Theme.qml" "$root/packaging/Trust-Certificate.ps1"
 if ($LASTEXITCODE -ne 0) { throw 'Installer layout test failed.' }

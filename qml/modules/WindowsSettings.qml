@@ -389,6 +389,7 @@ ModuleCard {
                 Layout.fillWidth: true
 
                 Label {
+                    textFormat: Text.PlainText
                     text: lightingDevice.modelData.name + " · " + lightingDevice.modelData.lamp_count + " LEDs"
                     color: Theme.ink
                     Layout.fillWidth: true
